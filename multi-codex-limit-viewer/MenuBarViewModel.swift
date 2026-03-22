@@ -7,6 +7,7 @@ import AppKit
 import Combine
 import CoreGraphics
 import Foundation
+import ServiceManagement
 
 @MainActor
 final class MenuBarViewModel: ObservableObject {
@@ -19,6 +20,7 @@ final class MenuBarViewModel: ObservableObject {
     @Published var transientError: String?
     @Published private(set) var codexExecutablePath: String?
     @Published private(set) var diagnosticsReport = ""
+    @Published private(set) var launchAtLoginEnabled = false
 
     private let store: AuthSnapshotStore
     private let probe: CodexUsageProbe
@@ -44,6 +46,7 @@ final class MenuBarViewModel: ObservableObject {
         self.codexWindowTitleReader = codexWindowTitleReader ?? CodexWindowTitleReader()
         state = (try? self.store.loadState()) ?? .empty
         runtimeStates = [:]
+        syncLaunchAtLoginStatus()
         self.logger.append("App launched. storage=\(self.store.rootURL.path)")
         refreshDiagnosticsReport()
 
@@ -100,6 +103,14 @@ final class MenuBarViewModel: ObservableObject {
 
     var languageOptions: [AppLanguage] {
         AppLanguage.allCases
+    }
+
+    var autoRefreshInterval: AutoRefreshInterval {
+        state.autoRefreshInterval
+    }
+
+    var autoRefreshIntervalOptions: [AutoRefreshInterval] {
+        AutoRefreshInterval.allCases
     }
 
     func bootstrap() async {
@@ -373,6 +384,40 @@ final class MenuBarViewModel: ObservableObject {
         }
     }
 
+    func autoRefreshIntervalDisplayName(for interval: AutoRefreshInterval) -> String {
+        interval.displayTitle(in: effectiveLanguage)
+    }
+
+    func setAutoRefreshInterval(_ interval: AutoRefreshInterval) {
+        guard state.autoRefreshInterval != interval else {
+            return
+        }
+
+        updateState { state in
+            state.autoRefreshInterval = interval
+        }
+        startAutoRefreshLoop()
+        log("Auto-refresh interval set to \(interval.displayTitle(in: .english)).")
+    }
+
+    func setLaunchAtLogin(_ isEnabled: Bool) {
+        transientError = nil
+
+        do {
+            if isEnabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            syncLaunchAtLoginStatus()
+            log("Start at Login updated. enabled=\(launchAtLoginEnabled)")
+        } catch {
+            syncLaunchAtLoginStatus()
+            transientError = launchAtLoginErrorMessage(for: error)
+            log("Updating Start at Login failed: \(error.localizedDescription)")
+        }
+    }
+
     func openSettingsWindow() {
         log("Opening settings window.")
         NSApplication.shared.activate(ignoringOtherApps: true)
@@ -616,14 +661,35 @@ final class MenuBarViewModel: ObservableObject {
 
     private func startAutoRefreshLoop() {
         autoRefreshTask?.cancel()
+        let interval = state.autoRefreshInterval.timeInterval
         autoRefreshTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(45))
+                do {
+                    try await Task.sleep(for: .seconds(interval))
+                } catch {
+                    return
+                }
+
+                guard !Task.isCancelled else {
+                    return
+                }
+
                 guard let self else {
                     return
                 }
                 await self.refreshAll()
             }
+        }
+    }
+
+    private func syncLaunchAtLoginStatus() {
+        switch SMAppService.mainApp.status {
+        case .enabled, .requiresApproval:
+            launchAtLoginEnabled = true
+        case .notFound, .notRegistered:
+            launchAtLoginEnabled = false
+        @unknown default:
+            launchAtLoginEnabled = false
         }
     }
 
@@ -812,7 +878,9 @@ final class MenuBarViewModel: ObservableObject {
             "Storage: \(storagePath)",
             "Log file: \(diagnosticsLogPath)",
             "Codex executable: \(codexExecutablePath ?? "unresolved")",
-            "Imported accounts: \(state.accounts.count)"
+            "Imported accounts: \(state.accounts.count)",
+            "Start at Login: \(launchAtLoginEnabled ? "enabled" : "disabled")",
+            "Auto refresh interval: \(state.autoRefreshInterval.displayTitle(in: .english))"
         ]
 
         if let transientError, !transientError.isEmpty {
@@ -834,6 +902,13 @@ final class MenuBarViewModel: ObservableObject {
         }
 
         return lines.joined(separator: "\n")
+    }
+
+    private func launchAtLoginErrorMessage(for error: Error) -> String {
+        if effectiveLanguage.isChinese {
+            return "无法更新登录时启动：\(error.localizedDescription)"
+        }
+        return "Couldn't update Start at Login: \(error.localizedDescription)"
     }
 }
 

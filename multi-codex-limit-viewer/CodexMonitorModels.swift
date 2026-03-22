@@ -69,8 +69,60 @@ enum AppLanguage: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
+enum AutoRefreshInterval: Int, Codable, CaseIterable, Identifiable, Sendable {
+    case fifteenSeconds = 15
+    case thirtySeconds = 30
+    case fortyFiveSeconds = 45
+    case oneMinute = 60
+    case twoMinutes = 120
+    case fiveMinutes = 300
+
+    static let defaultValue: AutoRefreshInterval = .fortyFiveSeconds
+
+    var id: Int { rawValue }
+
+    nonisolated var timeInterval: TimeInterval {
+        TimeInterval(rawValue)
+    }
+
+    nonisolated func displayTitle(in language: AppLanguage) -> String {
+        if language.effectiveLanguage == .simplifiedChinese {
+            switch self {
+            case .fifteenSeconds:
+                return "15 秒"
+            case .thirtySeconds:
+                return "30 秒"
+            case .fortyFiveSeconds:
+                return "45 秒"
+            case .oneMinute:
+                return "1 分钟"
+            case .twoMinutes:
+                return "2 分钟"
+            case .fiveMinutes:
+                return "5 分钟"
+            }
+        }
+
+        switch self {
+        case .fifteenSeconds:
+            return "15 sec"
+        case .thirtySeconds:
+            return "30 sec"
+        case .fortyFiveSeconds:
+            return "45 sec"
+        case .oneMinute:
+            return "1 min"
+        case .twoMinutes:
+            return "2 min"
+        case .fiveMinutes:
+            return "5 min"
+        }
+    }
+}
+
 enum AppTextKey: String, Codable, CaseIterable, Sendable {
     case settings
+    case general
     case accounts
     case addAccount
     case deleteAccount
@@ -82,6 +134,10 @@ enum AppTextKey: String, Codable, CaseIterable, Sendable {
     case refresh
     case refreshing
     case refreshNow
+    case startAtLogin
+    case startAtLoginDescription
+    case refreshInterval
+    case chooseRefreshInterval
     case language
     case followSystem
     case english
@@ -133,6 +189,7 @@ enum AppTextKey: String, Codable, CaseIterable, Sendable {
 private enum AppTextCatalog {
     static let english: [AppTextKey: String] = [
         .settings: "Settings",
+        .general: "General",
         .accounts: "Accounts",
         .addAccount: "Add Account",
         .deleteAccount: "Delete Account",
@@ -144,6 +201,10 @@ private enum AppTextCatalog {
         .refresh: "Refresh",
         .refreshing: "Refreshing",
         .refreshNow: "Refresh Now",
+        .startAtLogin: "Start at Login",
+        .startAtLoginDescription: "Open the app automatically when you sign in on this Mac.",
+        .refreshInterval: "Refresh Interval",
+        .chooseRefreshInterval: "Choose how often the app refreshes usage in the background.",
         .language: "Language",
         .followSystem: "Follow System",
         .english: "English",
@@ -194,6 +255,7 @@ private enum AppTextCatalog {
 
     static let simplifiedChinese: [AppTextKey: String] = [
         .settings: "设置",
+        .general: "通用",
         .accounts: "账户",
         .addAccount: "添加账户",
         .deleteAccount: "删除账户",
@@ -205,6 +267,10 @@ private enum AppTextCatalog {
         .refresh: "刷新",
         .refreshing: "刷新中",
         .refreshNow: "立即刷新",
+        .startAtLogin: "登录时启动",
+        .startAtLoginDescription: "在这台 Mac 登录后自动打开应用。",
+        .refreshInterval: "刷新间隔",
+        .chooseRefreshInterval: "选择后台自动刷新用量的频率。",
         .language: "语言",
         .followSystem: "跟随系统",
         .english: "英语",
@@ -477,6 +543,7 @@ struct PersistedAppState: Codable, Sendable {
     var activeAccountID: String?
     var showEmails: Bool
     var preferredLanguage: AppLanguage
+    var autoRefreshInterval: AutoRefreshInterval
     var accounts: [StoredAccount]
 
     static let empty = PersistedAppState()
@@ -485,11 +552,13 @@ struct PersistedAppState: Codable, Sendable {
         activeAccountID: String? = nil,
         showEmails: Bool = false,
         preferredLanguage: AppLanguage = .system,
+        autoRefreshInterval: AutoRefreshInterval = .defaultValue,
         accounts: [StoredAccount] = []
     ) {
         self.activeAccountID = activeAccountID
         self.showEmails = showEmails
         self.preferredLanguage = preferredLanguage
+        self.autoRefreshInterval = autoRefreshInterval
         self.accounts = accounts
     }
 
@@ -497,6 +566,7 @@ struct PersistedAppState: Codable, Sendable {
         case activeAccountID
         case showEmails
         case preferredLanguage
+        case autoRefreshInterval
         case accounts
     }
 
@@ -505,6 +575,7 @@ struct PersistedAppState: Codable, Sendable {
         activeAccountID = try container.decodeIfPresent(String.self, forKey: .activeAccountID)
         showEmails = try container.decodeIfPresent(Bool.self, forKey: .showEmails) ?? false
         preferredLanguage = try container.decodeIfPresent(AppLanguage.self, forKey: .preferredLanguage) ?? .system
+        autoRefreshInterval = try container.decodeIfPresent(AutoRefreshInterval.self, forKey: .autoRefreshInterval) ?? .defaultValue
         accounts = try container.decodeIfPresent([StoredAccount].self, forKey: .accounts) ?? []
     }
 
@@ -513,6 +584,7 @@ struct PersistedAppState: Codable, Sendable {
         try container.encodeIfPresent(activeAccountID, forKey: .activeAccountID)
         try container.encode(showEmails, forKey: .showEmails)
         try container.encode(preferredLanguage, forKey: .preferredLanguage)
+        try container.encode(autoRefreshInterval, forKey: .autoRefreshInterval)
         try container.encode(accounts, forKey: .accounts)
     }
 }

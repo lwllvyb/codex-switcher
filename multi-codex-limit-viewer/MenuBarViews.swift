@@ -71,6 +71,8 @@ struct MenuBarRootView: View {
     @State private var draggingAccountID: String?
     @State private var draggingPointerY: CGFloat?
     @State private var draggingPointerOffsetY: CGFloat = 0
+    @State private var isReorderGestureActive = false
+    @State private var accountSelectionSuppressedUntil = Date.distantPast
 
     private let accountsListCoordinateSpace = "MenuBarRootView.accounts"
 
@@ -246,7 +248,9 @@ struct MenuBarRootView: View {
                 viewModel.meterSummaryLabel(for: meter)
             }
         ) {
-            guard isInteractive else {
+            guard isInteractive,
+                  !isReorderGestureActive,
+                  Date() >= accountSelectionSuppressedUntil else {
                 return
             }
 
@@ -547,6 +551,7 @@ struct MenuBarRootView: View {
             return
         }
 
+        isReorderGestureActive = true
         draggingAccountID = accountID
         draggingPointerY = pointerY
 
@@ -570,6 +575,11 @@ struct MenuBarRootView: View {
     }
 
     private func clearAccountDrag() {
+        if isReorderGestureActive {
+            accountSelectionSuppressedUntil = Date().addingTimeInterval(0.35)
+        }
+
+        isReorderGestureActive = false
         draggingAccountID = nil
         draggingPointerY = nil
         draggingPointerOffsetY = 0
@@ -616,6 +626,68 @@ struct SettingsView: View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
+                    SettingsPanelSection(title: viewModel.text(.general)) {
+                        SettingsPanelRow {
+                            HStack(alignment: .center, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(viewModel.text(.startAtLogin))
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(Color.codexInk)
+
+                                    Text(viewModel.text(.startAtLoginDescription))
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundStyle(Color.codexSecondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+
+                                Spacer(minLength: 12)
+
+                                Toggle(
+                                    "",
+                                    isOn: Binding(
+                                        get: { viewModel.launchAtLoginEnabled },
+                                        set: { viewModel.setLaunchAtLogin($0) }
+                                    )
+                                )
+                                .labelsHidden()
+                                .toggleStyle(SwitchToggleStyle())
+                            }
+                        }
+
+                        SettingsPanelDivider()
+
+                        SettingsPanelRow {
+                            VStack(alignment: .leading, spacing: 14) {
+                                HStack(alignment: .center, spacing: 12) {
+                                    Text(viewModel.text(.refreshInterval))
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(Color.codexInk)
+
+                                    Spacer(minLength: 12)
+
+                                    Picker(
+                                        viewModel.text(.refreshInterval),
+                                        selection: Binding(
+                                            get: { viewModel.autoRefreshInterval },
+                                            set: { viewModel.setAutoRefreshInterval($0) }
+                                        )
+                                    ) {
+                                        ForEach(viewModel.autoRefreshIntervalOptions) { option in
+                                            Text(viewModel.autoRefreshIntervalDisplayName(for: option))
+                                                .tag(option)
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    .pickerStyle(.menu)
+                                }
+
+                                Text(viewModel.text(.chooseRefreshInterval))
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(Color.codexSecondary)
+                            }
+                        }
+                    }
+
                     SettingsPanelSection(title: viewModel.text(.accounts)) {
                         SettingsPanelRow {
                             Text("\(viewModel.text(.importedAccounts)): \(viewModel.accounts.count)")
