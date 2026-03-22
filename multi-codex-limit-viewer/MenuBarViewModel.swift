@@ -9,6 +9,8 @@ import Foundation
 
 @MainActor
 final class MenuBarViewModel: ObservableObject {
+    static let settingsWindowIdentifier = "multi-codex-limit-viewer.settings"
+
     @Published private(set) var state: PersistedAppState
     @Published private(set) var runtimeStates: [String: AccountRuntimeState]
     @Published private(set) var isRefreshing = false
@@ -82,6 +84,18 @@ final class MenuBarViewModel: ObservableObject {
 
     var diagnosticsLogPath: String {
         logger.logURL.path
+    }
+
+    var languagePreference: AppLanguage {
+        state.preferredLanguage
+    }
+
+    var effectiveLanguage: AppLanguage {
+        state.preferredLanguage.effectiveLanguage
+    }
+
+    var languageOptions: [AppLanguage] {
+        AppLanguage.allCases
     }
 
     func bootstrap() async {
@@ -289,8 +303,128 @@ final class MenuBarViewModel: ObservableObject {
         }
     }
 
+    func setLanguage(_ language: AppLanguage) {
+        updateState { state in
+            state.preferredLanguage = language
+        }
+    }
+
+    func openSettingsWindow() {
+        log("Opening settings window.")
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        NSApplication.shared.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        bringSettingsWindowToFront(attemptsRemaining: 6)
+    }
+
     func displayedEmail(for account: StoredAccount) -> String {
         state.showEmails ? account.email : account.maskedEmail
+    }
+
+    func text(_ key: AppTextKey) -> String {
+        state.preferredLanguage.text(for: key)
+    }
+
+    func languageDisplayName(for language: AppLanguage) -> String {
+        language.displayTitle(in: effectiveLanguage)
+    }
+
+    func localizedPlanTitle(for plan: PlanBadge) -> String {
+        switch plan {
+        case .free:
+            return text(.planFree)
+        case .go:
+            return text(.planGo)
+        case .plus:
+            return text(.planPlus)
+        case .pro:
+            return text(.planPro)
+        case .team:
+            return text(.planTeam)
+        case .business:
+            return text(.planBusiness)
+        case .enterprise:
+            return text(.planEnterprise)
+        case .edu:
+            return text(.planEdu)
+        case .unknown:
+            return text(.planUnknown)
+        }
+    }
+
+    func workspaceKindTitle(for kind: WorkspaceKind) -> String {
+        switch kind {
+        case .personal:
+            return text(.workspaceKindPersonal)
+        case .team:
+            return text(.workspaceKindTeam)
+        }
+    }
+
+    func workspaceKindTitle(for account: StoredAccount, workspace: StoredWorkspace?) -> String {
+        workspaceKindTitle(for: account.displayWorkspaceKind(for: workspace))
+    }
+
+    func organizationName(for account: StoredAccount, workspace: StoredWorkspace?) -> String? {
+        account.organizationName(for: workspace)
+    }
+
+    func accountSubtitle(for account: StoredAccount) -> String {
+        if let organizationName = account.organizationName(for: account.selectedWorkspace) {
+            return organizationName
+        }
+        return workspaceKindTitle(for: account, workspace: account.selectedWorkspace)
+    }
+
+    func workspaceMenuLabel(for workspace: StoredWorkspace) -> String {
+        workspace.organizationName ?? workspaceKindTitle(for: workspace.kind)
+    }
+
+    func updatedText(since date: Date?) -> String {
+        guard let date else {
+            return text(.waitingFirstRefresh)
+        }
+
+        let relativeText = relativeUpdateText(since: date)
+        if effectiveLanguage.isChinese {
+            return relativeText == "刚刚" ? "刚刚更新" : "\(relativeText)更新"
+        }
+        return "Updated \(relativeText)"
+    }
+
+    func resetsInText(until date: Date) -> String {
+        let remaining = remainingText(until: date)
+        if effectiveLanguage.isChinese {
+            return "\(remaining)后重置"
+        }
+        return "Resets in \(remaining)"
+    }
+
+    func meterTitle(for meter: UsageMeter) -> String {
+        switch meter.windowDurationMinutes {
+        case 300:
+            return text(.fiveHours)
+        case 1_440:
+            return text(.daily)
+        case 10_080:
+            return text(.weekly)
+        default:
+            return meter.title
+        }
+    }
+
+    func meterSummaryLabel(for meter: UsageMeter) -> String {
+        switch meter.windowDurationMinutes {
+        case 300:
+            return "5h"
+        case 10_080:
+            return text(.weekly)
+        case 1_440:
+            return text(.daily)
+        case .some(let minutes) where minutes > 0:
+            return meter.compactTitle
+        default:
+            return meterTitle(for: meter)
+        }
     }
 
     func copyDiagnostics() {
@@ -429,6 +563,29 @@ final class MenuBarViewModel: ObservableObject {
         }
     }
 
+    private func bringSettingsWindowToFront(attemptsRemaining: Int) {
+        if let settingsWindow = NSApplication.shared.windows.first(where: {
+            $0.identifier?.rawValue == Self.settingsWindowIdentifier
+        }) {
+            var behavior = settingsWindow.collectionBehavior
+            behavior.insert(.moveToActiveSpace)
+            settingsWindow.collectionBehavior = behavior
+            settingsWindow.makeKeyAndOrderFront(nil)
+            settingsWindow.orderFrontRegardless()
+            log("Settings window brought to front.")
+            return
+        }
+
+        guard attemptsRemaining > 0 else {
+            log("Settings window fronting skipped because the window could not be found.")
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            self.bringSettingsWindowToFront(attemptsRemaining: attemptsRemaining - 1)
+        }
+    }
+
     private func log(_ message: String) {
         logger.append(message)
         refreshDiagnosticsReport()
@@ -448,6 +605,57 @@ final class MenuBarViewModel: ObservableObject {
 
     private func refreshDiagnosticsReport() {
         diagnosticsReport = buildDiagnosticsReport()
+    }
+
+    private func relativeUpdateText(since date: Date) -> String {
+        let seconds = max(0, Int(Date().timeIntervalSince(date)))
+
+        if seconds < 60 {
+            return effectiveLanguage.isChinese ? "刚刚" : "just now"
+        }
+
+        let minutes = seconds / 60
+        if minutes < 60 {
+            if effectiveLanguage.isChinese {
+                return "\(minutes) 分钟前"
+            }
+            return minutes == 1 ? "1 min ago" : "\(minutes) min ago"
+        }
+
+        let hours = minutes / 60
+        if hours < 24 {
+            if effectiveLanguage.isChinese {
+                return "\(hours) 小时前"
+            }
+            return hours == 1 ? "1 hour ago" : "\(hours) hours ago"
+        }
+
+        let days = hours / 24
+        if effectiveLanguage.isChinese {
+            return "\(days) 天前"
+        }
+        return days == 1 ? "1 day ago" : "\(days) days ago"
+    }
+
+    private func remainingText(until date: Date) -> String {
+        let remaining = max(0, date.timeIntervalSinceNow)
+        let hours = Int(remaining) / 3_600
+        let minutes = (Int(remaining) % 3_600) / 60
+        let days = Int(remaining) / 86_400
+
+        if days >= 2 {
+            return effectiveLanguage.isChinese ? "\(days)天" : "\(days)d"
+        }
+
+        if hours > 0 {
+            if effectiveLanguage.isChinese {
+                return "\(hours)小时 \(minutes)分钟"
+            }
+            return "\(hours)h \(minutes)m"
+        }
+
+        let safeMinutes = max(minutes, 1)
+        return effectiveLanguage.isChinese ? "\(safeMinutes)分钟" : "\(safeMinutes)m"
     }
 
     private func buildDiagnosticsReport() -> String {

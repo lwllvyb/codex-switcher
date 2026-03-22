@@ -22,7 +22,7 @@ struct multi_codex_limit_viewerApp: App {
         }
         .menuBarExtraStyle(.window)
 
-        Settings {
+        Window("Settings", id: MenuBarViewModel.settingsWindowIdentifier) {
             SettingsView(viewModel: viewModel)
         }
     }

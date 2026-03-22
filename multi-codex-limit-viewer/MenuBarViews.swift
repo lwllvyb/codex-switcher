@@ -10,30 +10,30 @@ private enum CapacityDisplayMode: String {
     case remaining
     case used
 
-    var title: String {
+    var titleKey: AppTextKey {
         switch self {
         case .remaining:
-            return "Remaining"
+            return .capacityRemaining
         case .used:
-            return "Used"
+            return .capacityUsed
         }
     }
 
-    var toggleTitle: String {
+    var toggleTitleKey: AppTextKey {
         switch self {
         case .remaining:
-            return "Show Used"
+            return .capacityShowUsed
         case .used:
-            return "Show Remaining"
+            return .capacityShowRemaining
         }
     }
 
-    var summaryText: String {
+    var summaryTextKey: AppTextKey {
         switch self {
         case .remaining:
-            return "Default view shows the room you still have."
+            return .capacitySummaryRemaining
         case .used:
-            return "Quickly compare which windows are burning faster."
+            return .capacitySummaryUsed
         }
     }
 
@@ -52,18 +52,20 @@ private enum CapacityDisplayMode: String {
         Double(percent(for: meter)) / 100
     }
 
-    func detailLabel(for meter: UsageMeter) -> String {
+    var detailLabelKey: AppTextKey {
         switch self {
         case .remaining:
-            return percent(for: meter) == 1 ? "left" : "left"
+            return .capacityLeft
         case .used:
-            return "used"
+            return .capacityUsedSuffix
         }
     }
 }
 
 struct MenuBarRootView: View {
     @AppStorage("capacityDisplayMode") private var capacityDisplayModeRawValue = CapacityDisplayMode.remaining.rawValue
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openWindow) private var openWindow
     @ObservedObject var viewModel: MenuBarViewModel
 
     private var capacityDisplayMode: CapacityDisplayMode {
@@ -72,11 +74,10 @@ struct MenuBarRootView: View {
 
     var body: some View {
         Group {
-            if let activeAccount = viewModel.activeAccount,
-               let activeWorkspace = viewModel.activeWorkspace {
+            if let activeAccount = viewModel.activeAccount {
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 18) {
-                        header(account: activeAccount, workspace: activeWorkspace)
+                        header(account: activeAccount)
                         usageSection(account: activeAccount)
                         accountsSection
                         footerActions
@@ -99,7 +100,7 @@ struct MenuBarRootView: View {
         )
     }
 
-    private func header(account: StoredAccount, workspace: StoredWorkspace) -> some View {
+    private func header(account: StoredAccount) -> some View {
         MenuSectionCard {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -120,115 +121,36 @@ struct MenuBarRootView: View {
 
                 Spacer(minLength: 0)
 
-                VStack(alignment: .trailing, spacing: 12) {
-                    Text(viewModel.displayedEmail(for: account))
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Color.codexInk)
-                        .lineLimit(1)
-                        .multilineTextAlignment(.trailing)
-
-                    if account.workspaces.count > 1 {
-                        WorkspacePicker(
-                            account: account,
-                            selectedWorkspace: workspace,
-                            labelTitle: account.organizationDisplayName(for: workspace),
-                            onSelect: { workspaceID in
-                                viewModel.selectWorkspace(workspaceID, for: account.id)
-                            }
-                        )
-                    } else {
-                        WorkspaceBadge(
-                            title: account.currentOrganizationDisplayName,
-                            icon: account.plan.isOrganizationPlan ? "building.2.crop.circle" : "person.crop.circle"
-                        )
-                    }
-
-                    Button {
-                        Task {
-                            await viewModel.refreshAll()
-                        }
-                    } label: {
-                        HStack(spacing: 8) {
-                            if viewModel.isRefreshing {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Image(systemName: "arrow.clockwise")
-                                    .font(.system(size: 13, weight: .semibold))
-                            }
-
-                            Text(viewModel.isRefreshing ? "Refreshing" : "Refresh")
-                                .font(.system(size: 12, weight: .semibold))
-                        }
-                        .foregroundStyle(Color.codexInk)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 9)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(Color.codexCardRaised)
-                        )
-                        .overlay(
-                            Capsule(style: .continuous)
-                                .stroke(Color.codexStroke, lineWidth: 1)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(viewModel.isRefreshing)
-                }
+                refreshButton
+                    .padding(.top, 2)
             }
         }
     }
 
     private func usageSection(account: StoredAccount) -> some View {
         MenuSectionCard {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Capacity")
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 16) {
+                    Text(viewModel.text(.capacity))
                         .font(.system(size: 22, weight: .semibold, design: .rounded))
                         .foregroundStyle(Color.codexInk)
 
-                    Text(capacityDisplayMode.summaryText)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color.codexSecondary)
+                    Spacer(minLength: 0)
+
+                    capacityAccountHeader(account: account)
                 }
-
-                Spacer(minLength: 0)
-
-                Button {
-                    capacityDisplayModeRawValue = nextCapacityDisplayMode.rawValue
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "arrow.left.arrow.right.circle")
-                            .font(.system(size: 13, weight: .semibold))
-
-                        Text(capacityDisplayMode.toggleTitle)
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .foregroundStyle(Color.codexInk)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(Color.codexCardRaised)
-                    )
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .stroke(Color.codexStroke, lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
             }
 
             ForEach(viewModel.snapshot(for: account)?.meters ?? []) { meter in
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(alignment: .top, spacing: 12) {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(meter.title)
+                            Text(viewModel.meterTitle(for: meter))
                                 .font(.system(size: 18, weight: .semibold, design: .rounded))
                                 .foregroundStyle(Color.codexInk)
 
                             if let resetsAt = meter.resetsAt {
-                                Text("Resets in \(remainingText(until: resetsAt))")
+                                Text(viewModel.resetsInText(until: resetsAt))
                                     .font(.system(size: 12, weight: .medium))
                                     .foregroundStyle(Color.codexSecondary)
                             }
@@ -241,7 +163,7 @@ struct MenuBarRootView: View {
                                 .font(.system(size: 30, weight: .bold, design: .rounded))
                                 .foregroundStyle(Color.codexInk)
 
-                            Text(capacityDisplayMode.detailLabel(for: meter))
+                            Text(viewModel.text(capacityDisplayMode.detailLabelKey))
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(Color.codexSecondary)
                         }
@@ -269,18 +191,22 @@ struct MenuBarRootView: View {
 
     private var accountsSection: some View {
         MenuSectionCard {
-            Text("Accounts")
+            Text(viewModel.text(.accounts))
                 .font(.system(size: 22, weight: .semibold, design: .rounded))
                 .foregroundStyle(Color.codexInk)
 
             ForEach(viewModel.accounts) { account in
                 AccountListRow(
-                    account: account,
                     displayedEmail: viewModel.displayedEmail(for: account),
-                    organizationName: account.currentOrganizationDisplayName,
+                    organizationName: viewModel.accountSubtitle(for: account),
                     snapshot: viewModel.snapshot(for: account),
                     displayMode: capacityDisplayMode,
-                    isActive: viewModel.activeAccount?.id == account.id
+                    isActive: viewModel.activeAccount?.id == account.id,
+                    currentBadgeTitle: viewModel.text(.current),
+                    planTitle: viewModel.localizedPlanTitle(for: account.plan),
+                    meterSummaryLabel: { meter in
+                        viewModel.meterSummaryLabel(for: meter)
+                    }
                 ) {
                     viewModel.selectAccount(account.id)
                 }
@@ -290,41 +216,42 @@ struct MenuBarRootView: View {
 
     private var footerActions: some View {
         MenuSectionCard {
-            FooterButton(icon: "plus", title: "Add Account") {
-                Task {
-                    await viewModel.addAccount()
+            FooterButton(icon: "plus", title: viewModel.text(.addAccount)) {
+                dismissMenuBarPanel {
+                    Task {
+                        await viewModel.addAccount()
+                    }
                 }
             }
 
-            FooterButton(icon: "dot.radiowaves.left.and.right", title: "Status Page") {
-                guard let url = URL(string: "https://status.openai.com") else {
-                    return
+            FooterButton(icon: "dot.radiowaves.left.and.right", title: viewModel.text(.statusPage)) {
+                dismissMenuBarPanel {
+                    guard let url = URL(string: "https://status.openai.com") else {
+                        return
+                    }
+                    NSWorkspace.shared.open(url)
                 }
-                NSWorkspace.shared.open(url)
-            }
-
-            FooterButton(icon: "doc.on.doc", title: "Copy Diagnostics") {
-                viewModel.copyDiagnostics()
-            }
-
-            FooterButton(icon: "doc.text.magnifyingglass", title: "Open Log") {
-                viewModel.revealDiagnosticsLog()
             }
 
             FooterButton(
                 icon: viewModel.state.showEmails ? "eye.slash" : "eye",
-                title: viewModel.state.showEmails ? "Hide Emails" : "Show Emails"
+                title: viewModel.state.showEmails ? viewModel.text(.hideEmails) : viewModel.text(.showEmails)
             ) {
                 viewModel.toggleShowEmails()
             }
 
-            SettingsLink {
-                FooterRowLabel(icon: "gearshape", title: "Settings")
+            FooterButton(icon: "arrow.left.arrow.right.circle", title: viewModel.text(capacityDisplayMode.toggleTitleKey)) {
+                capacityDisplayModeRawValue = nextCapacityDisplayMode.rawValue
             }
-            .buttonStyle(.plain)
 
-            FooterButton(icon: "power", title: "Quit") {
-                NSApplication.shared.terminate(nil)
+            FooterButton(icon: "gearshape", title: viewModel.text(.settings)) {
+                openSettingsPanel()
+            }
+
+            FooterButton(icon: "power", title: viewModel.text(.quit)) {
+                dismissMenuBarPanel {
+                    NSApplication.shared.terminate(nil)
+                }
             }
         }
     }
@@ -335,7 +262,7 @@ struct MenuBarRootView: View {
                 .font(.system(size: 30, weight: .semibold, design: .rounded))
                 .foregroundStyle(Color.codexInk)
 
-            Text("No imported ChatGPT Codex account was found yet.")
+            Text(viewModel.text(.noImportedAccount))
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Color.codexSecondary)
 
@@ -352,7 +279,7 @@ struct MenuBarRootView: View {
                     Image(systemName: "plus")
                         .font(.system(size: 13, weight: .bold))
 
-                    Text("Add Account")
+                    Text(viewModel.text(.addAccount))
                         .font(.system(size: 14, weight: .semibold))
                 }
                 .foregroundStyle(.white)
@@ -364,8 +291,9 @@ struct MenuBarRootView: View {
                 )
             }
             .buttonStyle(.plain)
+            .buttonStyle(PrimaryHoverButtonStyle())
 
-            Text("Add Account will first try the account currently logged into Codex, then open browser login if it is already in the list.")
+            Text(viewModel.text(.howToAddMoreAccountsLine2))
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Color.codexSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -377,32 +305,19 @@ struct MenuBarRootView: View {
         capacityDisplayMode == .remaining ? .used : .remaining
     }
 
-    private func updatedText(for accountID: String) -> String {
-        if let updatedAt = viewModel.runtimeState(for: accountID).lastUpdatedAt {
-            return "Updated \(relativeUpdateText(since: updatedAt))"
-        }
-        return "Waiting for first refresh"
+    private func openSettingsPanel() {
+        openWindow(id: MenuBarViewModel.settingsWindowIdentifier)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        dismiss()
     }
 
-    private func relativeUpdateText(since date: Date) -> String {
-        let seconds = max(0, Int(Date().timeIntervalSince(date)))
+    private func dismissMenuBarPanel(_ action: @escaping () -> Void) {
+        dismiss()
+        DispatchQueue.main.async(execute: action)
+    }
 
-        if seconds < 60 {
-            return "just now"
-        }
-
-        let minutes = seconds / 60
-        if minutes < 60 {
-            return minutes == 1 ? "1 min ago" : "\(minutes) min ago"
-        }
-
-        let hours = minutes / 60
-        if hours < 24 {
-            return hours == 1 ? "1 hour ago" : "\(hours) hours ago"
-        }
-
-        let days = hours / 24
-        return days == 1 ? "1 day ago" : "\(days) days ago"
+    private func updatedText(for accountID: String) -> String {
+        viewModel.updatedText(since: viewModel.runtimeState(for: accountID).lastUpdatedAt)
     }
 
     private func diagnosticsErrorBlock(_ message: String) -> some View {
@@ -419,16 +334,16 @@ struct MenuBarRootView: View {
     private var diagnosticsActions: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 12) {
-                Button("Copy Diagnostics") {
+                Button(viewModel.text(.copyDiagnostics)) {
                     viewModel.copyDiagnostics()
                 }
 
-                Button("Open Log") {
+                Button(viewModel.text(.openLog)) {
                     viewModel.revealDiagnosticsLog()
                 }
             }
-            .buttonStyle(.plain)
             .font(.system(size: 11, weight: .semibold))
+            .buttonStyle(HoverLinkButtonStyle())
 
             Text(viewModel.diagnosticsLogPath)
                 .font(.system(size: 10, design: .monospaced))
@@ -436,23 +351,6 @@ struct MenuBarRootView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
-    }
-
-    private func remainingText(until date: Date) -> String {
-        let remaining = max(0, date.timeIntervalSinceNow)
-        let hours = Int(remaining) / 3_600
-        let minutes = (Int(remaining) % 3_600) / 60
-        let days = Int(remaining) / 86_400
-
-        if days >= 2 {
-            return "\(days)d"
-        }
-
-        if hours > 0 {
-            return "\(hours)h \(minutes)m"
-        }
-
-        return "\(max(minutes, 1))m"
     }
 
     private func meterFillColor(for meter: UsageMeter) -> Color {
@@ -467,6 +365,72 @@ struct MenuBarRootView: View {
         }
 
         return Color.codexAccent
+    }
+
+    private var refreshButton: some View {
+        Button {
+            Task {
+                await viewModel.refreshAll()
+            }
+        } label: {
+            HStack(spacing: 8) {
+                if viewModel.isRefreshing {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+
+                Text(viewModel.isRefreshing ? viewModel.text(.refreshing) : viewModel.text(.refresh))
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(Color.codexInk)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.codexCardRaised)
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color.codexStroke, lineWidth: 1)
+            )
+        }
+        .buttonStyle(CapsuleHoverButtonStyle())
+        .disabled(viewModel.isRefreshing)
+    }
+
+    private func capacityAccountHeader(account: StoredAccount) -> some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            Text(viewModel.displayedEmail(for: account))
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color.codexInk)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: 220, alignment: .trailing)
+
+            if account.workspaces.count > 1, let selectedWorkspace = account.selectedWorkspace {
+                WorkspacePicker(
+                    account: account,
+                    selectedWorkspace: selectedWorkspace,
+                    labelTitle: viewModel.accountSubtitle(for: account),
+                    menuLabel: { workspace in
+                        viewModel.workspaceMenuLabel(for: workspace)
+                    },
+                    onSelect: { workspaceID in
+                        viewModel.selectWorkspace(workspaceID, for: account.id)
+                    }
+                )
+            } else {
+                Text(viewModel.accountSubtitle(for: account))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.codexSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: 220, alignment: .trailing)
+            }
+        }
     }
 }
 
@@ -507,60 +471,235 @@ struct SettingsView: View {
     @ObservedObject var viewModel: MenuBarViewModel
 
     var body: some View {
-        Form {
-            Section("Accounts") {
-                Text("Imported accounts: \(viewModel.accounts.count)")
-                Text("Stored at: \(viewModel.storagePath)")
-                    .textSelection(.enabled)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                SettingsPanelSection(title: viewModel.text(.accounts)) {
+                    SettingsPanelRow {
+                        Text("\(viewModel.text(.importedAccounts)): \(viewModel.accounts.count)")
+                            .font(.system(size: 18, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color.codexInk)
+                    }
 
-                Button("Add Account") {
-                    Task {
-                        await viewModel.addAccount()
+                    SettingsPanelDivider()
+
+                    SettingsPanelRow {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(viewModel.text(.storedAt))
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(Color.codexSecondary)
+                                .textCase(.uppercase)
+
+                            Text(viewModel.storagePath)
+                                .font(.system(size: 14, design: .monospaced))
+                                .foregroundStyle(Color.codexInk)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    SettingsPanelDivider()
+
+                    SettingsPanelRow {
+                        HStack(spacing: 12) {
+                            SettingsActionPill(title: viewModel.text(.addAccount)) {
+                                Task {
+                                    await viewModel.addAccount()
+                                }
+                            }
+
+                            SettingsActionPill(title: viewModel.text(.refreshNow)) {
+                                Task {
+                                    await viewModel.refreshAll()
+                                }
+                            }
+                        }
                     }
                 }
 
-                Button("Refresh Now") {
-                    Task {
-                        await viewModel.refreshAll()
+                SettingsPanelSection(title: viewModel.text(.language)) {
+                    SettingsPanelRow {
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack(alignment: .center, spacing: 12) {
+                                Text(viewModel.text(.language))
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(Color.codexInk)
+
+                                Spacer(minLength: 12)
+
+                                Picker(
+                                    viewModel.text(.language),
+                                    selection: Binding(
+                                        get: { viewModel.languagePreference },
+                                        set: { viewModel.setLanguage($0) }
+                                    )
+                                ) {
+                                    ForEach(viewModel.languageOptions) { option in
+                                        Text(viewModel.languageDisplayName(for: option))
+                                            .tag(option)
+                                    }
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.menu)
+                            }
+
+                            Text(viewModel.text(.chooseAppLanguage))
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(Color.codexSecondary)
+                        }
+                    }
+                }
+
+                SettingsPanelSection(title: viewModel.text(.codexCLI)) {
+                    SettingsPanelRow {
+                        Text(viewModel.codexExecutablePath ?? viewModel.text(.codexExecutableUnresolved))
+                            .font(.system(size: 14, design: .monospaced))
+                            .foregroundStyle(Color.codexInk)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                SettingsPanelSection(title: viewModel.text(.diagnostics)) {
+                    SettingsPanelRow {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(viewModel.text(.logFile))
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(Color.codexSecondary)
+                                .textCase(.uppercase)
+
+                            Text(viewModel.diagnosticsLogPath)
+                                .font(.system(size: 14, design: .monospaced))
+                                .foregroundStyle(Color.codexInk)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    SettingsPanelDivider()
+
+                    SettingsPanelRow {
+                        HStack(spacing: 12) {
+                            SettingsActionPill(title: viewModel.text(.copyDiagnostics)) {
+                                viewModel.copyDiagnostics()
+                            }
+
+                            SettingsActionPill(title: viewModel.text(.revealLogInFinder)) {
+                                viewModel.revealDiagnosticsLog()
+                            }
+                        }
+                    }
+
+                    SettingsPanelDivider()
+
+                    SettingsPanelRow {
+                        Text(viewModel.diagnosticsReport.isEmpty ? viewModel.text(.noDiagnosticsCollected) : viewModel.diagnosticsReport)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(Color.codexInk)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .fill(Color.codexCardRaised)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .stroke(Color.codexStroke, lineWidth: 1)
+                            )
+                    }
+                }
+
+                SettingsPanelSection(title: viewModel.text(.howToAddMoreAccounts)) {
+                    SettingsPanelRow {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(viewModel.text(.howToAddMoreAccountsLine1))
+                            Text(viewModel.text(.howToAddMoreAccountsLine2))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Color.codexInk)
                     }
                 }
             }
-
-            Section("Codex CLI") {
-                Text(viewModel.codexExecutablePath ?? "codex executable not resolved yet")
-                    .textSelection(.enabled)
-            }
-
-            Section("Diagnostics") {
-                Text("Log file: \(viewModel.diagnosticsLogPath)")
-                    .textSelection(.enabled)
-
-                Button("Copy Diagnostics") {
-                    viewModel.copyDiagnostics()
-                }
-
-                Button("Reveal Log In Finder") {
-                    viewModel.revealDiagnosticsLog()
-                }
-
-                ScrollView {
-                    Text(viewModel.diagnosticsReport.isEmpty ? "No diagnostics collected yet." : viewModel.diagnosticsReport)
-                        .font(.system(size: 11, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(minHeight: 180)
-            }
-
-            Section("How To Add More Accounts") {
-                Text("This app first snapshots the account currently logged into Codex.")
-                Text("If that account is already imported, Add Account opens the Codex browser login flow and saves the new account into its own storage.")
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .formStyle(.grouped)
-        .padding(20)
+        .background(ScrollChromeTuner())
+        .background(
+            LinearGradient(
+                colors: [Color.codexCanvas, Color.codexCanvasShadow],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
         .frame(width: 520, height: 520)
+        .background(WindowConfigurator(identifier: MenuBarViewModel.settingsWindowIdentifier))
+    }
+}
+
+private struct SettingsPanelSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color.codexInk)
+
+            VStack(alignment: .leading, spacing: 0, content: content)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(Color.codexCard)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Color.codexStroke, lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.04), radius: 16, x: 0, y: 8)
+        }
+    }
+}
+
+private struct SettingsPanelRow<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        content()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(18)
+    }
+}
+
+private struct SettingsPanelDivider: View {
+    var body: some View {
+        Divider()
+            .padding(.horizontal, 18)
+    }
+}
+
+private struct SettingsActionPill: View {
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.codexInk)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(Color.codexCardRaised)
+                )
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(Color.codexStroke, lineWidth: 1)
+                )
+        }
+        .buttonStyle(CapsuleHoverButtonStyle())
     }
 }
 
@@ -588,6 +727,8 @@ private struct WorkspaceBadge: View {
     let icon: String
     var showsChevron = false
 
+    @State private var isHovered = false
+
     var body: some View {
         HStack(spacing: 7) {
             Image(systemName: icon)
@@ -613,6 +754,11 @@ private struct WorkspaceBadge: View {
             Capsule(style: .continuous)
                 .stroke(Color.codexStroke, lineWidth: 1)
         )
+        .scaleEffect(isHovered ? 1.01 : 1)
+        .offset(y: isHovered ? -1 : 0)
+        .brightness(isHovered ? 0.015 : 0)
+        .animation(.easeOut(duration: 0.16), value: isHovered)
+        .onHover { isHovered = $0 }
     }
 }
 
@@ -620,6 +766,7 @@ private struct WorkspacePicker: View {
     let account: StoredAccount
     let selectedWorkspace: StoredWorkspace
     let labelTitle: String
+    let menuLabel: (StoredWorkspace) -> String
     let onSelect: (String) -> Void
 
     var body: some View {
@@ -629,7 +776,7 @@ private struct WorkspacePicker: View {
                     onSelect(workspace.id)
                 } label: {
                     HStack {
-                        Text(workspace.menuLabel)
+                        Text(menuLabel(workspace))
                         if workspace.id == selectedWorkspace.id {
                             Spacer()
                             Image(systemName: "checkmark")
@@ -645,17 +792,18 @@ private struct WorkspacePicker: View {
             )
         }
         .menuStyle(.borderlessButton)
-        .fixedSize()
     }
 }
 
 private struct AccountListRow: View {
-    let account: StoredAccount
     let displayedEmail: String
     let organizationName: String
     let snapshot: UsageSnapshot?
     let displayMode: CapacityDisplayMode
     let isActive: Bool
+    let currentBadgeTitle: String
+    let planTitle: String
+    let meterSummaryLabel: (UsageMeter) -> String
     let onTap: () -> Void
 
     var body: some View {
@@ -667,11 +815,15 @@ private struct AccountListRow: View {
                             .font(.system(size: 15, weight: .semibold, design: .rounded))
                             .foregroundStyle(Color.codexInk)
                             .lineLimit(1)
+                            .truncationMode(.middle)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .layoutPriority(1)
 
                         Text(organizationName)
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(Color.codexSecondary)
                             .lineLimit(1)
+                            .truncationMode(.tail)
                     }
 
                     Spacer(minLength: 0)
@@ -679,14 +831,14 @@ private struct AccountListRow: View {
                     HStack(spacing: 6) {
                         if isActive {
                             badge(
-                                title: "Current",
+                                title: currentBadgeTitle,
                                 foreground: .white,
                                 background: Color.codexAccent
                             )
                         }
 
                         badge(
-                            title: account.plan.title,
+                            title: planTitle,
                             foreground: Color.codexInk,
                             background: Color.codexTrack
                         )
@@ -711,7 +863,7 @@ private struct AccountListRow: View {
             )
             .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(HoverLiftButtonStyle())
     }
 
     private var displayMeters: [UsageMeter] {
@@ -748,7 +900,7 @@ private struct AccountListRow: View {
 
     private func meterSummary(_ meter: UsageMeter) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(summaryLabel(for: meter))
+            Text(meterSummaryLabel(meter))
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(Color.codexSecondary)
                 .textCase(.uppercase)
@@ -776,21 +928,6 @@ private struct AccountListRow: View {
             UsageMeter(id: "placeholder-5h", title: "5 Hours", usedPercent: 0, windowDurationMinutes: 300, resetsAt: nil),
             UsageMeter(id: "placeholder-1w", title: "Weekly", usedPercent: 0, windowDurationMinutes: 10_080, resetsAt: nil)
         ]
-    }
-
-    private func summaryLabel(for meter: UsageMeter) -> String {
-        switch meter.windowDurationMinutes {
-        case 300:
-            return "5h"
-        case 10_080:
-            return "Weekly"
-        case 1_440:
-            return "Daily"
-        case .some(let minutes) where minutes > 0:
-            return meter.compactTitle
-        default:
-            return meter.title
-        }
     }
 
     private func badge(title: String, foreground: Color, background: Color) -> some View {
@@ -829,7 +966,7 @@ private struct FooterButton: View {
         Button(action: action) {
             FooterRowLabel(icon: icon, title: title)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(HoverLiftButtonStyle())
     }
 }
 
@@ -914,6 +1051,33 @@ private struct ScrollChromeTuner: NSViewRepresentable {
     }
 }
 
+private struct WindowConfigurator: NSViewRepresentable {
+    let identifier: String
+
+    func makeNSView(context: Context) -> NSView {
+        NSView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            guard let window = nsView.window else {
+                return
+            }
+
+            if window.identifier?.rawValue != identifier {
+                window.identifier = NSUserInterfaceItemIdentifier(identifier)
+            }
+
+            window.isReleasedWhenClosed = false
+            window.tabbingMode = .disallowed
+
+            var behavior = window.collectionBehavior
+            behavior.insert(.moveToActiveSpace)
+            window.collectionBehavior = behavior
+        }
+    }
+}
+
 private extension Color {
     static let codexAccent = Color(red: 0.70, green: 0.55, blue: 0.28)
     static let codexAccentSoft = Color(red: 0.95, green: 0.91, blue: 0.83)
@@ -927,4 +1091,86 @@ private extension Color {
     static let codexTrack = Color(red: 0.88, green: 0.85, blue: 0.79)
     static let codexWarning = Color(red: 0.84, green: 0.55, blue: 0.22)
     static let codexDanger = Color(red: 0.79, green: 0.33, blue: 0.28)
+}
+
+private struct HoverLiftButtonStyle: ButtonStyle {
+    var hoveredScale: CGFloat = 1.01
+    var pressedScale: CGFloat = 0.985
+    var hoveredOffset: CGFloat = -1
+    var hoveredBrightness: Double = 0.015
+
+    func makeBody(configuration: Configuration) -> some View {
+        HoverLiftButtonBody(
+            configuration: configuration,
+            hoveredScale: hoveredScale,
+            pressedScale: pressedScale,
+            hoveredOffset: hoveredOffset,
+            hoveredBrightness: hoveredBrightness
+        )
+    }
+}
+
+private struct HoverLiftButtonBody: View {
+    let configuration: HoverLiftButtonStyle.Configuration
+    let hoveredScale: CGFloat
+    let pressedScale: CGFloat
+    let hoveredOffset: CGFloat
+    let hoveredBrightness: Double
+
+    @State private var isHovered = false
+
+    var body: some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? pressedScale : (isHovered ? hoveredScale : 1))
+            .offset(y: configuration.isPressed ? 0 : (isHovered ? hoveredOffset : 0))
+            .brightness(isHovered ? hoveredBrightness : 0)
+            .animation(.easeOut(duration: 0.16), value: isHovered)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .onHover { isHovered = $0 }
+    }
+}
+
+private struct CapsuleHoverButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HoverLiftButtonBody(
+            configuration: configuration,
+            hoveredScale: 1.015,
+            pressedScale: 0.985,
+            hoveredOffset: -1.5,
+            hoveredBrightness: 0.02
+        )
+    }
+}
+
+private struct PrimaryHoverButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HoverLiftButtonBody(
+            configuration: configuration,
+            hoveredScale: 1.02,
+            pressedScale: 0.985,
+            hoveredOffset: -1.5,
+            hoveredBrightness: 0.01
+        )
+    }
+}
+
+private struct HoverLinkButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HoverLinkButtonBody(configuration: configuration)
+    }
+}
+
+private struct HoverLinkButtonBody: View {
+    let configuration: HoverLinkButtonStyle.Configuration
+
+    @State private var isHovered = false
+
+    var body: some View {
+        configuration.label
+            .foregroundStyle(isHovered ? Color.codexInk : Color.codexSecondary)
+            .underline(isHovered, color: Color.codexSecondary)
+            .opacity(configuration.isPressed ? 0.72 : 1)
+            .animation(.easeOut(duration: 0.16), value: isHovered)
+            .onHover { isHovered = $0 }
+    }
 }
