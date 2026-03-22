@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		1935AA2A2F6E6FE80094C1A0 /* multi-codex-limit-viewer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "multi-codex-limit-viewer.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		1935AA2A2F6E6FE80094C1A0 /* Codex Switcher.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Codex Switcher.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -40,7 +40,7 @@
 		1935AA2B2F6E6FE80094C1A0 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				1935AA2A2F6E6FE80094C1A0 /* multi-codex-limit-viewer.app */,
+				1935AA2A2F6E6FE80094C1A0 /* Codex Switcher.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -66,8 +66,8 @@
 			name = "multi-codex-limit-viewer";
 			packageProductDependencies = (
 			);
-			productName = "multi-codex-limit-viewer";
-			productReference = 1935AA2A2F6E6FE80094C1A0 /* multi-codex-limit-viewer.app */;
+			productName = "Codex Switcher";
+			productReference = 1935AA2A2F6E6FE80094C1A0 /* Codex Switcher.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -271,7 +271,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 13.5;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.zzz.codex.switcher;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "Codex Switcher";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -308,7 +308,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 13.5;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.zzz.codex.switcher;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "Codex Switcher";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;

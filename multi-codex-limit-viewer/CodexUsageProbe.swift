@@ -284,8 +284,8 @@ struct CodexUsageProbe: Sendable {
                     "method": "initialize",
                     "params": [
                         "clientInfo": [
-                            "name": "multi-codex-limit-viewer",
-                            "title": "Multi Codex Limit Viewer",
+                            "name": "codex-switcher",
+                            "title": "Codex Switcher",
                             "version": "1.0"
                         ],
                         "capabilities": [

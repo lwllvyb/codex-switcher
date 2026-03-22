@@ -1,10 +1,10 @@
-# Multi Codex Limit Viewer
+# Codex Switcher
 
 [中文](#中文) | [English](#english)
 
 ## 中文
 
-一个 macOS 菜单栏小工具，用来同时查看多个 ChatGPT Codex 账号的用量、套餐、工作区和重置时间。
+Codex Switcher 是一个 macOS 菜单栏小工具，用来同时查看多个 ChatGPT Codex 账号的用量、套餐、工作区和重置时间。
 
 ### 功能
 
@@ -41,7 +41,7 @@
 
 ## English
 
-A macOS menu bar app for monitoring multiple ChatGPT Codex accounts in one place, including usage, plan, workspace, and reset timing.
+Codex Switcher is a macOS menu bar app for monitoring multiple ChatGPT Codex accounts in one place, including usage, plan, workspace, and reset timing.
 
 ### Features
 
