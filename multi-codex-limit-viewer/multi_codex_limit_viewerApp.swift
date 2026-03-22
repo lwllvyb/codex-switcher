@@ -9,9 +9,21 @@ import SwiftUI
 
 @main
 struct multi_codex_limit_viewerApp: App {
+    @StateObject private var viewModel = MenuBarViewModel()
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        MenuBarExtra {
+            MenuBarRootView(viewModel: viewModel)
+        } label: {
+            StatusBarLabel(
+                snapshot: viewModel.activeSnapshot,
+                isRefreshing: viewModel.isRefreshing
+            )
+        }
+        .menuBarExtraStyle(.window)
+
+        Settings {
+            SettingsView(viewModel: viewModel)
         }
     }
 }
