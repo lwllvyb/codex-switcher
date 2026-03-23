@@ -15,6 +15,12 @@ Codex Switcher 是一个 macOS 菜单栏小工具，用来同时查看多个 Cha
 - 支持后台自动刷新
 - 支持中英文界面
 
+### 截图演示
+
+| 总览面板 | 账号与操作菜单 |
+| --- | --- |
+| ![Codex Switcher 总览面板](./docs/screenshots/overview-main.jpg) | ![Codex Switcher 账号与操作菜单](./docs/screenshots/overview-actions.jpg) |
+
 ### 运行环境
 
 - macOS
@@ -51,6 +57,12 @@ Codex Switcher is a macOS menu bar app for monitoring multiple ChatGPT Codex acc
 - Refresh per-account workspace data and show the next reset time for every account
 - Auto-refresh in the background
 - English and Simplified Chinese UI
+
+### Screenshots
+
+| Overview Panel | Accounts and Actions |
+| --- | --- |
+| ![Codex Switcher overview panel](./docs/screenshots/overview-main-en.png) | ![Codex Switcher accounts and actions menu](./docs/screenshots/overview-actions-en.png) |
 
 ### Requirements
 

@@ -3,6 +3,7 @@
 //  multi-codex-limit-viewer
 //
 
+import Darwin
 import Foundation
 
 private final class ContinuationResumeState: @unchecked Sendable {
@@ -271,12 +272,12 @@ struct CodexUsageProbe: Sendable {
         log?("Launching codex probe. executable=\(executableURL.path) workspace=\(workspaceID ?? "default") codexHome=\(codexHomeURL.path)")
         try process.run()
 
-        let stderrTask = Task.detached(priority: .utility) {
+        let stderrTask = Task(priority: .utility) {
             let data = try stderrPipe.fileHandleForReading.readToEnd() ?? Data()
             return String(decoding: data, as: UTF8.self)
         }
 
-        let responseTask = Task.detached(priority: .userInitiated) { [stdinPipe, stdoutPipe] in
+        let responseTask = Task(priority: .userInitiated) { [stdinPipe, stdoutPipe] in
             try Self.writeJSONLine(
                 [
                     "jsonrpc": "2.0",
@@ -361,19 +362,29 @@ struct CodexUsageProbe: Sendable {
             let probeResult = try await withTimeout(seconds: 8) {
                 try await responseTask.value
             }
-            if process.isRunning {
-                process.terminate()
-            }
-            _ = try? await stderrTask.value
+            _ = await shutdownProbeProcess(
+                process: process,
+                stdinPipe: stdinPipe,
+                stdoutPipe: stdoutPipe,
+                stderrPipe: stderrPipe,
+                responseTask: responseTask,
+                stderrTask: stderrTask,
+                log: log
+            )
             log?("Probe succeeded. email=\(probeResult.email) meters=\(probeResult.snapshot.meters.count)")
             return probeResult
         } catch {
-            if process.isRunning {
-                process.terminate()
-            }
-            let stderr = (try? await stderrTask.value) ?? ""
-            if !stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                log?("Probe stderr: \(stderr.trimmingCharacters(in: .whitespacesAndNewlines))")
+            let stderr = await shutdownProbeProcess(
+                process: process,
+                stdinPipe: stdinPipe,
+                stdoutPipe: stdoutPipe,
+                stderrPipe: stderrPipe,
+                responseTask: responseTask,
+                stderrTask: stderrTask,
+                log: log
+            )
+            if !stderr.isEmpty {
+                log?("Probe stderr: \(stderr)")
                 throw ProbeError.commandFailed(stderr)
             }
             log?("Probe failed: \(error.localizedDescription)")
@@ -396,6 +407,97 @@ struct CodexUsageProbe: Sendable {
         var environment = ProcessInfo.processInfo.environment
         environment["CODEX_HOME"] = codexHomeURL.path
         return environment
+    }
+
+    nonisolated private func shutdownProbeProcess(
+        process: Process,
+        stdinPipe: Pipe,
+        stdoutPipe: Pipe,
+        stderrPipe: Pipe,
+        responseTask: Task<ProbeResult, Error>,
+        stderrTask: Task<String, Error>,
+        log: ((String) -> Void)? = nil
+    ) async -> String {
+        responseTask.cancel()
+
+        do {
+            try stdinPipe.fileHandleForWriting.close()
+        } catch {
+            // Ignore cleanup errors from already-closed pipes.
+        }
+
+        await stopProcessIfNeeded(process, log: log)
+
+        let stderr = await readTaskOutput(stderrTask, timeoutSeconds: 1)
+
+        do {
+            try stdoutPipe.fileHandleForReading.close()
+        } catch {
+            // Ignore cleanup errors from already-closed pipes.
+        }
+
+        do {
+            try stderrPipe.fileHandleForReading.close()
+        } catch {
+            // Ignore cleanup errors from already-closed pipes.
+        }
+
+        return stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    nonisolated private func stopProcessIfNeeded(
+        _ process: Process,
+        log: ((String) -> Void)? = nil
+    ) async {
+        guard process.isRunning else {
+            return
+        }
+
+        let pid = process.processIdentifier
+        process.terminate()
+
+        if process.isRunning {
+            process.interrupt()
+        }
+
+        guard !(await waitForProcessExit(process, timeoutSeconds: 1)) else {
+            return
+        }
+
+        log?("codex probe did not exit after SIGTERM; force killing pid=\(pid)")
+        kill(pid, SIGKILL)
+        _ = await waitForProcessExit(process, timeoutSeconds: 1)
+    }
+
+    nonisolated private func waitForProcessExit(
+        _ process: Process,
+        timeoutSeconds: TimeInterval
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+
+        while process.isRunning && Date() < deadline {
+            do {
+                try await Task.sleep(for: .milliseconds(50))
+            } catch {
+                return !process.isRunning
+            }
+        }
+
+        return !process.isRunning
+    }
+
+    nonisolated private func readTaskOutput(
+        _ task: Task<String, Error>,
+        timeoutSeconds: Double
+    ) async -> String {
+        do {
+            return try await withTimeout(seconds: timeoutSeconds) {
+                try await task.value
+            }
+        } catch {
+            task.cancel()
+            return ""
+        }
     }
 
     nonisolated private static func writeJSONLine(_ object: [String: Any], to handle: FileHandle) throws {

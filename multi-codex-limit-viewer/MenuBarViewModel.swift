@@ -31,6 +31,8 @@ final class MenuBarViewModel: ObservableObject {
     private var autoRefreshTask: Task<Void, Never>?
     private var addAccountTask: Task<Void, Never>?
     private var addAccountFlowID: UUID?
+    private var workspaceWillSleepObserver: NSObjectProtocol?
+    private var workspaceDidWakeObserver: NSObjectProtocol?
 
     init(
         store: AuthSnapshotStore? = nil,
@@ -50,6 +52,7 @@ final class MenuBarViewModel: ObservableObject {
         runtimeStates = [:]
         syncLaunchAtLoginStatus()
         self.logger.append("App launched. storage=\(self.store.rootURL.path)")
+        observeWorkspacePowerEvents()
         refreshDiagnosticsReport()
 
         Task {
@@ -60,6 +63,14 @@ final class MenuBarViewModel: ObservableObject {
     deinit {
         autoRefreshTask?.cancel()
         addAccountTask?.cancel()
+
+        let workspaceNotificationCenter = NSWorkspace.shared.notificationCenter
+        if let workspaceWillSleepObserver {
+            workspaceNotificationCenter.removeObserver(workspaceWillSleepObserver)
+        }
+        if let workspaceDidWakeObserver {
+            workspaceNotificationCenter.removeObserver(workspaceDidWakeObserver)
+        }
 
         let loginFlow = self.loginFlow
         Task {
@@ -766,6 +777,38 @@ final class MenuBarViewModel: ObservableObject {
                     return
                 }
 
+                guard let self else {
+                    return
+                }
+                await self.refreshAll()
+            }
+        }
+    }
+
+    private func observeWorkspacePowerEvents() {
+        let notificationCenter = NSWorkspace.shared.notificationCenter
+
+        workspaceWillSleepObserver = notificationCenter.addObserver(
+            forName: NSWorkspace.willSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.log("System will sleep.")
+        }
+
+        workspaceDidWakeObserver = notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else {
+                return
+            }
+
+            self.log("System did wake. Restarting auto-refresh loop and refreshing immediately.")
+            self.startAutoRefreshLoop()
+
+            Task { @MainActor [weak self] in
                 guard let self else {
                     return
                 }
