@@ -69,6 +69,37 @@ enum AppLanguage: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
+enum AppAppearance: String, Codable, CaseIterable, Identifiable, Sendable {
+    case system
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    nonisolated func displayTitle(in language: AppLanguage) -> String {
+        let resolvedLanguage = language.effectiveLanguage
+        if resolvedLanguage == .simplifiedChinese {
+            switch self {
+            case .system:
+                return "跟随系统"
+            case .light:
+                return "浅色"
+            case .dark:
+                return "暗色"
+            }
+        }
+
+        switch self {
+        case .system:
+            return "Follow System"
+        case .light:
+            return "Light"
+        case .dark:
+            return "Dark"
+        }
+    }
+}
+
 enum AutoRefreshInterval: Int, Codable, CaseIterable, Identifiable, Sendable {
     case fifteenSeconds = 15
     case thirtySeconds = 30
@@ -140,6 +171,8 @@ enum AppTextKey: String, Codable, CaseIterable, Sendable {
     case startAtLoginDescription
     case refreshInterval
     case chooseRefreshInterval
+    case appearance
+    case chooseAppAppearance
     case language
     case followSystem
     case english
@@ -213,6 +246,8 @@ private enum AppTextCatalog {
         .startAtLoginDescription: "Open the app automatically when you sign in on this Mac.",
         .refreshInterval: "Refresh Interval",
         .chooseRefreshInterval: "Choose how often the app refreshes usage in the background.",
+        .appearance: "Appearance",
+        .chooseAppAppearance: "Choose whether the app follows the system, light mode, or dark mode.",
         .language: "Language",
         .followSystem: "Follow System",
         .english: "English",
@@ -285,6 +320,8 @@ private enum AppTextCatalog {
         .startAtLoginDescription: "在这台 Mac 登录后自动打开应用。",
         .refreshInterval: "刷新间隔",
         .chooseRefreshInterval: "选择后台自动刷新用量的频率。",
+        .appearance: "外观",
+        .chooseAppAppearance: "选择跟随系统、浅色或暗色外观。",
         .language: "语言",
         .followSystem: "跟随系统",
         .english: "英语",
@@ -561,6 +598,7 @@ struct PersistedAppState: Codable, Sendable {
     var activeAccountID: String?
     var showEmails: Bool
     var preferredLanguage: AppLanguage
+    var preferredAppearance: AppAppearance
     var autoRefreshInterval: AutoRefreshInterval
     var accounts: [StoredAccount]
 
@@ -570,12 +608,14 @@ struct PersistedAppState: Codable, Sendable {
         activeAccountID: String? = nil,
         showEmails: Bool = false,
         preferredLanguage: AppLanguage = .system,
+        preferredAppearance: AppAppearance = .system,
         autoRefreshInterval: AutoRefreshInterval = .defaultValue,
         accounts: [StoredAccount] = []
     ) {
         self.activeAccountID = activeAccountID
         self.showEmails = showEmails
         self.preferredLanguage = preferredLanguage
+        self.preferredAppearance = preferredAppearance
         self.autoRefreshInterval = autoRefreshInterval
         self.accounts = accounts
     }
@@ -584,6 +624,7 @@ struct PersistedAppState: Codable, Sendable {
         case activeAccountID
         case showEmails
         case preferredLanguage
+        case preferredAppearance
         case autoRefreshInterval
         case accounts
     }
@@ -593,6 +634,7 @@ struct PersistedAppState: Codable, Sendable {
         activeAccountID = try container.decodeIfPresent(String.self, forKey: .activeAccountID)
         showEmails = try container.decodeIfPresent(Bool.self, forKey: .showEmails) ?? false
         preferredLanguage = try container.decodeIfPresent(AppLanguage.self, forKey: .preferredLanguage) ?? .system
+        preferredAppearance = try container.decodeIfPresent(AppAppearance.self, forKey: .preferredAppearance) ?? .system
         autoRefreshInterval = try container.decodeIfPresent(AutoRefreshInterval.self, forKey: .autoRefreshInterval) ?? .defaultValue
         accounts = try container.decodeIfPresent([StoredAccount].self, forKey: .accounts) ?? []
     }
@@ -602,6 +644,7 @@ struct PersistedAppState: Codable, Sendable {
         try container.encodeIfPresent(activeAccountID, forKey: .activeAccountID)
         try container.encode(showEmails, forKey: .showEmails)
         try container.encode(preferredLanguage, forKey: .preferredLanguage)
+        try container.encode(preferredAppearance, forKey: .preferredAppearance)
         try container.encode(autoRefreshInterval, forKey: .autoRefreshInterval)
         try container.encode(accounts, forKey: .accounts)
     }

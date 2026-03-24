@@ -50,6 +50,7 @@ final class MenuBarViewModel: ObservableObject {
         self.codexWindowTitleReader = codexWindowTitleReader ?? CodexWindowTitleReader()
         state = (try? self.store.loadState()) ?? .empty
         runtimeStates = [:]
+        applyAppearance()
         syncLaunchAtLoginStatus()
         self.logger.append("App launched. storage=\(self.store.rootURL.path)")
         observeWorkspacePowerEvents()
@@ -116,12 +117,20 @@ final class MenuBarViewModel: ObservableObject {
         state.preferredLanguage
     }
 
+    var preferredAppearance: AppAppearance {
+        state.preferredAppearance
+    }
+
     var effectiveLanguage: AppLanguage {
         state.preferredLanguage.effectiveLanguage
     }
 
     var languageOptions: [AppLanguage] {
         AppLanguage.allCases
+    }
+
+    var appearanceOptions: [AppAppearance] {
+        AppAppearance.allCases
     }
 
     var autoRefreshInterval: AutoRefreshInterval {
@@ -437,8 +446,24 @@ final class MenuBarViewModel: ObservableObject {
         }
     }
 
+    func setAppearance(_ appearance: AppAppearance) {
+        guard state.preferredAppearance != appearance else {
+            return
+        }
+
+        updateState { state in
+            state.preferredAppearance = appearance
+        }
+        applyAppearance()
+        log("Appearance set to \(appearance.rawValue).")
+    }
+
     func autoRefreshIntervalDisplayName(for interval: AutoRefreshInterval) -> String {
         interval.displayTitle(in: effectiveLanguage)
+    }
+
+    func appearanceDisplayName(for appearance: AppAppearance) -> String {
+        appearance.displayTitle(in: effectiveLanguage)
     }
 
     func setAutoRefreshInterval(_ interval: AutoRefreshInterval) {
@@ -743,6 +768,10 @@ final class MenuBarViewModel: ObservableObject {
         }
 
         return AccountImportResult(account: importedAccount, wasNew: wasNew)
+    }
+
+    private func applyAppearance() {
+        NSApplication.shared.appearance = state.preferredAppearance.nsAppearance
     }
 
     private func updateState(save: Bool = true, _ mutate: (inout PersistedAppState) -> Void) {
@@ -1052,6 +1081,19 @@ final class MenuBarViewModel: ObservableObject {
             return "无法更新登录时启动：\(error.localizedDescription)"
         }
         return "Couldn't update Start at Login: \(error.localizedDescription)"
+    }
+}
+
+private extension AppAppearance {
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .system:
+            return nil
+        case .light:
+            return NSAppearance(named: .aqua)
+        case .dark:
+            return NSAppearance(named: .darkAqua)
+        }
     }
 }
 

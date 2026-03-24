@@ -272,7 +272,7 @@ struct MenuBarRootView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .scaleEffect(isDragging ? 1.015 : 1)
         .shadow(
-            color: Color.black.opacity(isDragging ? 0.12 : 0),
+            color: Color.codexDragShadow.opacity(isDragging ? 1 : 0),
             radius: isDragging ? 18 : 0,
             x: 0,
             y: isDragging ? 12 : 0
@@ -733,6 +733,39 @@ struct SettingsView: View {
                         SettingsPanelRow {
                             VStack(alignment: .leading, spacing: 14) {
                                 HStack(alignment: .center, spacing: 12) {
+                                    Text(viewModel.text(.appearance))
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(Color.codexInk)
+
+                                    Spacer(minLength: 12)
+
+                                    Picker(
+                                        viewModel.text(.appearance),
+                                        selection: Binding(
+                                            get: { viewModel.preferredAppearance },
+                                            set: { viewModel.setAppearance($0) }
+                                        )
+                                    ) {
+                                        ForEach(viewModel.appearanceOptions) { option in
+                                            Text(viewModel.appearanceDisplayName(for: option))
+                                                .tag(option)
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    .pickerStyle(.menu)
+                                }
+
+                                Text(viewModel.text(.chooseAppAppearance))
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(Color.codexSecondary)
+                            }
+                        }
+
+                        SettingsPanelDivider()
+
+                        SettingsPanelRow {
+                            VStack(alignment: .leading, spacing: 14) {
+                                HStack(alignment: .center, spacing: 12) {
                                     Text(viewModel.text(.refreshInterval))
                                         .font(.system(size: 15, weight: .semibold))
                                         .foregroundStyle(Color.codexInk)
@@ -907,7 +940,7 @@ struct SettingsView: View {
             Link(destination: url) {
                 Text(url.absoluteString)
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    .foregroundStyle(Color.blue)
+                    .foregroundStyle(Color.codexLink)
                     .underline()
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -936,7 +969,7 @@ private struct SettingsPanelSection<Content: View>: View {
                     RoundedRectangle(cornerRadius: 24, style: .continuous)
                         .stroke(Color.codexStroke, lineWidth: 1)
                 )
-                .shadow(color: Color.black.opacity(0.04), radius: 16, x: 0, y: 8)
+                .shadow(color: Color.codexShadow, radius: 16, x: 0, y: 8)
         }
     }
 }
@@ -997,7 +1030,7 @@ private struct MenuSectionCard<Content: View>: View {
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .stroke(Color.codexStroke, lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.04), radius: 16, x: 0, y: 8)
+            .shadow(color: Color.codexShadow, radius: 16, x: 0, y: 8)
     }
 }
 
@@ -1359,7 +1392,7 @@ private struct ScrollChromeTuner: NSViewRepresentable {
             scrollView.drawsBackground = false
             scrollView.borderType = .noBorder
             scrollView.scrollerStyle = .overlay
-            scrollView.scrollerKnobStyle = .dark
+            scrollView.scrollerKnobStyle = scrollView.effectiveAppearance.isDarkMode ? .light : .dark
             scrollView.hasHorizontalScroller = false
         }
     }
@@ -1394,18 +1427,84 @@ private struct WindowConfigurator: NSViewRepresentable {
 }
 
 private extension Color {
-    static let codexAccent = Color(red: 0.70, green: 0.55, blue: 0.28)
-    static let codexAccentSoft = Color(red: 0.95, green: 0.91, blue: 0.83)
-    static let codexCanvas = Color(red: 0.95, green: 0.94, blue: 0.90)
-    static let codexCanvasShadow = Color(red: 0.92, green: 0.90, blue: 0.85)
-    static let codexCard = Color(red: 0.99, green: 0.98, blue: 0.96)
-    static let codexCardRaised = Color(red: 0.97, green: 0.96, blue: 0.92)
-    static let codexStroke = Color.black.opacity(0.07)
-    static let codexInk = Color(red: 0.21, green: 0.20, blue: 0.18)
-    static let codexSecondary = Color(red: 0.45, green: 0.42, blue: 0.38)
-    static let codexTrack = Color(red: 0.88, green: 0.85, blue: 0.79)
-    static let codexWarning = Color(red: 0.84, green: 0.55, blue: 0.22)
-    static let codexDanger = Color(red: 0.79, green: 0.33, blue: 0.28)
+    static let codexAccent = dynamicColor(
+        light: srgb(0.70, 0.55, 0.28),
+        dark: srgb(0.86, 0.69, 0.38)
+    )
+    static let codexAccentSoft = dynamicColor(
+        light: srgb(0.95, 0.91, 0.83),
+        dark: srgb(0.29, 0.24, 0.16)
+    )
+    static let codexCanvas = dynamicColor(
+        light: srgb(0.95, 0.94, 0.90),
+        dark: srgb(0.12, 0.12, 0.11)
+    )
+    static let codexCanvasShadow = dynamicColor(
+        light: srgb(0.92, 0.90, 0.85),
+        dark: srgb(0.15, 0.14, 0.13)
+    )
+    static let codexCard = dynamicColor(
+        light: srgb(0.99, 0.98, 0.96),
+        dark: srgb(0.17, 0.16, 0.15)
+    )
+    static let codexCardRaised = dynamicColor(
+        light: srgb(0.97, 0.96, 0.92),
+        dark: srgb(0.21, 0.20, 0.18)
+    )
+    static let codexStroke = dynamicColor(
+        light: srgb(0.00, 0.00, 0.00, alpha: 0.07),
+        dark: srgb(1.00, 1.00, 1.00, alpha: 0.10)
+    )
+    static let codexInk = dynamicColor(
+        light: srgb(0.21, 0.20, 0.18),
+        dark: srgb(0.93, 0.91, 0.86)
+    )
+    static let codexSecondary = dynamicColor(
+        light: srgb(0.45, 0.42, 0.38),
+        dark: srgb(0.67, 0.64, 0.59)
+    )
+    static let codexTrack = dynamicColor(
+        light: srgb(0.88, 0.85, 0.79),
+        dark: srgb(0.30, 0.28, 0.25)
+    )
+    static let codexWarning = dynamicColor(
+        light: srgb(0.84, 0.55, 0.22),
+        dark: srgb(0.92, 0.67, 0.29)
+    )
+    static let codexDanger = dynamicColor(
+        light: srgb(0.79, 0.33, 0.28),
+        dark: srgb(0.93, 0.48, 0.43)
+    )
+    static let codexLink = dynamicColor(
+        light: srgb(0.17, 0.39, 0.78),
+        dark: srgb(0.49, 0.68, 1.00)
+    )
+    static let codexShadow = dynamicColor(
+        light: srgb(0.00, 0.00, 0.00, alpha: 0.04),
+        dark: srgb(0.00, 0.00, 0.00, alpha: 0.28)
+    )
+    static let codexDragShadow = dynamicColor(
+        light: srgb(0.00, 0.00, 0.00, alpha: 0.12),
+        dark: srgb(0.00, 0.00, 0.00, alpha: 0.42)
+    )
+
+    private static func dynamicColor(light: NSColor, dark: NSColor) -> Color {
+        Color(
+            nsColor: NSColor(name: nil) { appearance in
+                appearance.isDarkMode ? dark : light
+            }
+        )
+    }
+
+    private static func srgb(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat, alpha: CGFloat = 1) -> NSColor {
+        NSColor(srgbRed: red, green: green, blue: blue, alpha: alpha)
+    }
+}
+
+private extension NSAppearance {
+    var isDarkMode: Bool {
+        bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
 }
 
 private struct HoverLiftButtonStyle: ButtonStyle {
