@@ -4,7 +4,7 @@
 
 ## 中文
 
-Codex Switcher 是一个 macOS 菜单栏小工具，用来同时查看多个 ChatGPT Codex 账号的用量、套餐、工作区和重置时间。
+Codex Switcher 是一个 macOS 菜单栏小工具，用来同时查看多个 ChatGPT Codex 账号的用量、套餐、工作区和重置时间。支持一键切换账号。
 
 ### 功能
 
@@ -12,6 +12,7 @@ Codex Switcher 是一个 macOS 菜单栏小工具，用来同时查看多个 Cha
 - 为每个账号分别保存认证快照，不需要来回手动切换
 - 菜单栏里直接查看 5 小时、日、周等窗口的用量
 - 支持按账号工作区刷新，并显示每个账号的下次重置时间
+- 支持一键切换
 - 支持后台自动刷新
 - 支持中英文界面
 
@@ -54,7 +55,7 @@ Codex Switcher 是一个 macOS 菜单栏小工具，用来同时查看多个 Cha
 
 ## English
 
-Codex Switcher is a macOS menu bar app for monitoring multiple ChatGPT Codex accounts in one place, including usage, plan, workspace, and reset timing.
+Codex Switcher is a macOS menu bar app for monitoring multiple ChatGPT Codex accounts in one place, including usage, plan, workspace, and reset timing. One‑click switch.
 
 ### Features
 
@@ -62,6 +63,7 @@ Codex Switcher is a macOS menu bar app for monitoring multiple ChatGPT Codex acc
 - Keep a separate auth snapshot for each account
 - View 5-hour, daily, and weekly usage windows directly from the menu bar
 - Refresh per-account workspace data and show the next reset time for every account
+- One‑click switch
 - Auto-refresh in the background
 - English and Simplified Chinese UI
 
