@@ -242,6 +242,11 @@ final class MenuBarViewModel: ObservableObject {
         transientError = nil
         log("Refresh started. accounts=\(state.accounts.count)")
 
+        defer {
+            isRefreshing = false
+            refreshDiagnosticsReport()
+        }
+
         for account in state.accounts {
             var runtimeState = runtimeStates[account.id] ?? AccountRuntimeState()
             runtimeState.isLoading = true
@@ -338,8 +343,6 @@ final class MenuBarViewModel: ObservableObject {
             }
         }
 
-        isRefreshing = false
-        refreshDiagnosticsReport()
     }
 
     func selectAccount(_ accountID: String) {

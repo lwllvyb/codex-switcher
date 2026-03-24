@@ -63,7 +63,7 @@ rg -n "ENABLE_APP_SANDBOX|ENABLE_HARDENED_RUNTIME" multi-codex-limit-viewer.xcod
 ```bash
 xcrun notarytool store-credentials "codex-notary" \
   --apple-id "<你的 Apple ID>" \
-  --team-id "24D7733HKN" \
+  --team-id "xxx" \
   --password "<你的 app-specific password>"
 ```
 

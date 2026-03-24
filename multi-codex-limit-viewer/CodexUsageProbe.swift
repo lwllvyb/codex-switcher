@@ -694,18 +694,55 @@ private func withTimeout<T: Sendable>(
     seconds: Double,
     operation: @escaping @Sendable () async throws -> T
 ) async throws -> T {
-    try await withThrowingTaskGroup(of: T.self) { group in
-        group.addTask {
-            try await operation()
+    let operationTask = Task(priority: .userInitiated) {
+        try await operation()
+    }
+    let timeoutTask = Task(priority: .utility) {
+        try await Task.sleep(for: .seconds(seconds))
+    }
+
+    return try await withCheckedThrowingContinuation { continuation in
+        let lock = NSLock()
+        let resumeState = ContinuationResumeState()
+
+        @Sendable func resume(_ result: Result<T, Error>) {
+            lock.lock()
+            defer { lock.unlock() }
+
+            guard !resumeState.didResume else {
+                return
+            }
+            resumeState.didResume = true
+
+            operationTask.cancel()
+            timeoutTask.cancel()
+
+            switch result {
+            case .success(let value):
+                continuation.resume(returning: value)
+            case .failure(let error):
+                continuation.resume(throwing: error)
+            }
         }
 
-        group.addTask {
-            try await Task.sleep(for: .seconds(seconds))
-            throw ProbeError.timedOut
+        Task(priority: .userInitiated) {
+            do {
+                let value = try await operationTask.value
+                resume(.success(value))
+            } catch {
+                resume(.failure(error))
+            }
         }
 
-        let result = try await group.next()!
-        group.cancelAll()
-        return result
+        Task(priority: .utility) {
+            do {
+                try await timeoutTask.value
+                resume(.failure(ProbeError.timedOut))
+            } catch is CancellationError {
+                // The main operation finished first.
+            } catch {
+                resume(.failure(error))
+            }
+        }
     }
 }
