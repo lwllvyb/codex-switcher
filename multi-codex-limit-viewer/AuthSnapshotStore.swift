@@ -112,7 +112,8 @@ final class AuthSnapshotStore {
             workspaces: workspaces,
             selectedWorkspaceID: selectedWorkspaceID,
             importedAt: Date(),
-            lastKnownRefreshAt: existingAccount?.lastKnownRefreshAt
+            lastKnownRefreshAt: existingAccount?.lastKnownRefreshAt,
+            tags: existingAccount?.tags ?? []
         )
     }
 

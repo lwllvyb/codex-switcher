@@ -158,6 +158,9 @@ enum AppTextKey: String, Codable, CaseIterable, Sendable {
     case addAccount
     case importCurrentAccount
     case deleteAccount
+    case addTag
+    case editTag
+    case deleteTag
     case statusPage
     case usageDashboard
     case copyDiagnostics
@@ -233,6 +236,9 @@ private enum AppTextCatalog {
         .addAccount: "Add Account",
         .importCurrentAccount: "Import Current Account",
         .deleteAccount: "Remove From List",
+        .addTag: "Add Tag",
+        .editTag: "Edit Tag",
+        .deleteTag: "Remove Tag",
         .statusPage: "Status Page",
         .usageDashboard: "Usage Dashboard",
         .copyDiagnostics: "Copy Diagnostics",
@@ -307,6 +313,9 @@ private enum AppTextCatalog {
         .addAccount: "添加账户",
         .importCurrentAccount: "导入当前账户",
         .deleteAccount: "从列表移除",
+        .addTag: "添加标签",
+        .editTag: "编辑标签",
+        .deleteTag: "删除标签",
         .statusPage: "当前状态",
         .usageDashboard: "数据看板",
         .copyDiagnostics: "复制诊断信息",
@@ -545,6 +554,52 @@ struct StoredWorkspace: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+enum AccountTagKind: String, Codable, Hashable, Sendable {
+    case custom
+    case availability
+}
+
+struct AccountTag: Codable, Hashable, Identifiable, Sendable {
+    nonisolated static let maxCustomCount = 5
+    nonisolated static let maxTitleLength = 10
+
+    var title: String
+    var kind: AccountTagKind
+
+    nonisolated var id: String {
+        "\(kind.rawValue):\(normalizedKey)"
+    }
+
+    nonisolated var isCustom: Bool {
+        kind == .custom
+    }
+
+    nonisolated var normalizedKey: String {
+        Self.normalizedTitle(from: title).lowercased()
+    }
+
+    init?(title: String, kind: AccountTagKind = .custom) {
+        let normalizedTitle = Self.normalizedTitle(from: title)
+        guard !normalizedTitle.isEmpty else {
+            return nil
+        }
+
+        self.title = normalizedTitle
+        self.kind = kind
+    }
+
+    nonisolated static func normalizedTitle(from rawTitle: String) -> String {
+        rawTitle
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    nonisolated static func exceedsTitleLengthLimit(_ rawTitle: String) -> Bool {
+        normalizedTitle(from: rawTitle).count > maxTitleLength
+    }
+}
+
 struct StoredAccount: Codable, Identifiable, Hashable, Sendable {
     let id: String
     var provider: UsageProviderID
@@ -556,9 +611,90 @@ struct StoredAccount: Codable, Identifiable, Hashable, Sendable {
     var selectedWorkspaceID: String
     var importedAt: Date
     var lastKnownRefreshAt: Date?
+    var tags: [AccountTag]
+
+    init(
+        id: String,
+        provider: UsageProviderID,
+        email: String,
+        maskedEmail: String,
+        plan: PlanBadge,
+        authHomeFolderName: String,
+        workspaces: [StoredWorkspace],
+        selectedWorkspaceID: String,
+        importedAt: Date,
+        lastKnownRefreshAt: Date?,
+        tags: [AccountTag] = []
+    ) {
+        self.id = id
+        self.provider = provider
+        self.email = email
+        self.maskedEmail = maskedEmail
+        self.plan = plan
+        self.authHomeFolderName = authHomeFolderName
+        self.workspaces = workspaces
+        self.selectedWorkspaceID = selectedWorkspaceID
+        self.importedAt = importedAt
+        self.lastKnownRefreshAt = lastKnownRefreshAt
+        self.tags = Self.normalizedTags(tags)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case provider
+        case email
+        case maskedEmail
+        case plan
+        case authHomeFolderName
+        case workspaces
+        case selectedWorkspaceID
+        case importedAt
+        case lastKnownRefreshAt
+        case tags
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        provider = try container.decode(UsageProviderID.self, forKey: .provider)
+        email = try container.decode(String.self, forKey: .email)
+        maskedEmail = try container.decode(String.self, forKey: .maskedEmail)
+        plan = try container.decode(PlanBadge.self, forKey: .plan)
+        authHomeFolderName = try container.decode(String.self, forKey: .authHomeFolderName)
+        workspaces = try container.decodeIfPresent([StoredWorkspace].self, forKey: .workspaces) ?? []
+        selectedWorkspaceID = try container.decodeIfPresent(String.self, forKey: .selectedWorkspaceID) ?? ""
+        importedAt = try container.decode(Date.self, forKey: .importedAt)
+        lastKnownRefreshAt = try container.decodeIfPresent(Date.self, forKey: .lastKnownRefreshAt)
+        tags = Self.normalizedTags(try container.decodeIfPresent([AccountTag].self, forKey: .tags) ?? [])
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(provider, forKey: .provider)
+        try container.encode(email, forKey: .email)
+        try container.encode(maskedEmail, forKey: .maskedEmail)
+        try container.encode(plan, forKey: .plan)
+        try container.encode(authHomeFolderName, forKey: .authHomeFolderName)
+        try container.encode(workspaces, forKey: .workspaces)
+        try container.encode(selectedWorkspaceID, forKey: .selectedWorkspaceID)
+        try container.encode(importedAt, forKey: .importedAt)
+        try container.encodeIfPresent(lastKnownRefreshAt, forKey: .lastKnownRefreshAt)
+        try container.encode(Self.normalizedTags(tags), forKey: .tags)
+    }
 
     var selectedWorkspace: StoredWorkspace? {
         workspaces.first(where: { $0.id == selectedWorkspaceID }) ?? workspaces.first
+    }
+
+    var visibleTags: [AccountTag] {
+        let availabilityTags = tags.filter { $0.kind == .availability }
+        let customTags = tags.filter { $0.kind == .custom }
+        return availabilityTags + Array(customTags.prefix(AccountTag.maxCustomCount))
+    }
+
+    var customTags: [AccountTag] {
+        tags.filter { $0.kind == .custom }
     }
 
     var preferredOrganizationWorkspace: StoredWorkspace? {
@@ -591,6 +727,31 @@ struct StoredAccount: Codable, Identifiable, Hashable, Sendable {
 
     var currentOrganizationName: String? {
         organizationName(for: selectedWorkspace)
+    }
+
+    nonisolated static func normalizedTags(_ tags: [AccountTag]) -> [AccountTag] {
+        var uniqueTags: [AccountTag] = []
+        var seenIDs = Set<String>()
+        var customTagCount = 0
+
+        let orderedTags = tags.filter { $0.kind == .availability } + tags.filter { $0.kind == .custom }
+
+        for tag in orderedTags {
+            guard seenIDs.insert(tag.id).inserted else {
+                continue
+            }
+
+            if tag.kind == .custom {
+                guard customTagCount < AccountTag.maxCustomCount else {
+                    continue
+                }
+                customTagCount += 1
+            }
+
+            uniqueTags.append(tag)
+        }
+
+        return uniqueTags
     }
 }
 
@@ -688,6 +849,7 @@ struct ProbeResult: Sendable {
 
 struct AccountRuntimeState {
     var snapshotsByWorkspaceID: [String: UsageSnapshot] = [:]
+    var errorsByWorkspaceID: [String: String] = [:]
     var lastUpdatedAt: Date?
     var lastError: String?
     var isLoading = false

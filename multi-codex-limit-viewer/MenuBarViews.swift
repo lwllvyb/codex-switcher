@@ -246,11 +246,14 @@ struct MenuBarRootView: View {
         let row = AccountListRow(
             displayedEmail: viewModel.displayedEmail(for: account),
             organizationName: viewModel.accountSubtitle(for: account),
+            tags: viewModel.visibleTags(for: account),
             snapshot: viewModel.snapshot(for: account),
             displayMode: capacityDisplayMode,
             isActive: viewModel.activeAccount?.id == account.id,
             currentBadgeTitle: viewModel.text(.current),
             planTitle: viewModel.localizedPlanTitle(for: account.plan),
+            editTagTitle: viewModel.text(.editTag),
+            deleteTagTitle: viewModel.text(.deleteTag),
             meterSummaryLabel: { meter in
                 viewModel.meterSummaryLabel(for: meter)
             },
@@ -259,16 +262,25 @@ struct MenuBarRootView: View {
                     return nil
                 }
                 return viewModel.resetsInText(until: resetsAt)
-            }
-        ) {
-            guard isInteractive,
-                  !isReorderGestureActive,
-                  Date() >= accountSelectionSuppressedUntil else {
-                return
-            }
+            },
+            onDeleteTag: { tag in
+                clearAccountDrag()
+                viewModel.removeTag(tag, from: account.id)
+            },
+            onEditTag: { tag in
+                clearAccountDrag()
+                viewModel.promptEditTag(tag, from: account.id)
+            },
+            onTap: {
+                guard isInteractive,
+                      !isReorderGestureActive,
+                      Date() >= accountSelectionSuppressedUntil else {
+                    return
+                }
 
-            viewModel.selectAccount(account.id)
-        }
+                viewModel.selectAccount(account.id)
+            }
+        )
         .frame(maxWidth: .infinity, alignment: .leading)
         .scaleEffect(isDragging ? 1.015 : 1)
         .shadow(
@@ -281,6 +293,14 @@ struct MenuBarRootView: View {
 
         if isInteractive {
             row.contextMenu {
+                Button {
+                    clearAccountDrag()
+                    viewModel.promptAddTag(to: account.id)
+                } label: {
+                    Label(viewModel.text(.addTag), systemImage: "tag")
+                }
+                .disabled(!viewModel.canAddCustomTag(to: account))
+
                 Button(role: .destructive) {
                     clearAccountDrag()
                     viewModel.deleteAccount(account.id)
@@ -1108,15 +1128,22 @@ private struct WorkspacePicker: View {
 }
 
 private struct AccountListRow: View {
+    private let badgeColumnWidth: CGFloat = 172
+
     let displayedEmail: String
     let organizationName: String?
+    let tags: [AccountTag]
     let snapshot: UsageSnapshot?
     let displayMode: CapacityDisplayMode
     let isActive: Bool
     let currentBadgeTitle: String
     let planTitle: String
+    let editTagTitle: String
+    let deleteTagTitle: String
     let meterSummaryLabel: (UsageMeter) -> String
     let meterResetLabel: (UsageMeter) -> String?
+    let onDeleteTag: (AccountTag) -> Void
+    let onEditTag: (AccountTag) -> Void
     let onTap: () -> Void
 
     var body: some View {
@@ -1140,24 +1167,14 @@ private struct AccountListRow: View {
                                 .truncationMode(.tail)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Spacer(minLength: 0)
-
-                    HStack(spacing: 6) {
-                        if isActive {
-                            badge(
-                                title: currentBadgeTitle,
-                                foreground: .white,
-                                background: Color.codexAccent
-                            )
+                    BadgeFlowLayout(horizontalSpacing: 6, verticalSpacing: 6, alignment: .trailing) {
+                        ForEach(rowBadges) { badge in
+                            badgeView(badge)
                         }
-
-                        badge(
-                            title: planTitle,
-                            foreground: Color.codexInk,
-                            background: Color.codexTrack
-                        )
                     }
+                    .frame(width: badgeColumnWidth, alignment: .trailing)
                 }
 
                 HStack(alignment: .top, spacing: 12) {
@@ -1255,16 +1272,104 @@ private struct AccountListRow: View {
         ]
     }
 
-    private func badge(title: String, foreground: Color, background: Color) -> some View {
+    @ViewBuilder
+    private func badgeView(_ badge: RowBadge) -> some View {
+        let view = self.badge(
+            title: badge.title,
+            foreground: badge.foreground,
+            background: badge.background,
+            maxWidth: badge.maxWidth
+        )
+
+        if let tag = badge.tag, tag.isCustom {
+            view.contextMenu {
+                Button {
+                    onEditTag(tag)
+                } label: {
+                    Label(editTagTitle, systemImage: "pencil")
+                }
+
+                Button(role: .destructive) {
+                    onDeleteTag(tag)
+                } label: {
+                    Label(deleteTagTitle, systemImage: "trash")
+                }
+            }
+        } else {
+            view
+        }
+    }
+
+    private var rowBadges: [RowBadge] {
+        var badges: [RowBadge] = []
+
+        if isActive {
+            badges.append(
+                RowBadge(
+                    id: "current",
+                    title: currentBadgeTitle,
+                    foreground: .white,
+                    background: Color.codexAccent,
+                    maxWidth: nil,
+                    tag: nil
+                )
+            )
+        }
+
+        badges.append(
+            RowBadge(
+                id: "plan",
+                title: planTitle,
+                foreground: Color.codexInk,
+                background: Color.codexTrack,
+                maxWidth: nil,
+                tag: nil
+            )
+        )
+
+        badges.append(contentsOf: tags.map { tag in
+            let tagColors = badgeColors(for: tag)
+            return RowBadge(
+                id: "tag:\(tag.id)",
+                title: tag.title,
+                foreground: tagColors.foreground,
+                background: tagColors.background,
+                maxWidth: 140,
+                tag: tag
+            )
+        })
+
+        return badges
+    }
+
+    private func badge(
+        title: String,
+        foreground: Color,
+        background: Color,
+        maxWidth: CGFloat?
+    ) -> some View {
         Text(title)
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(foreground)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: maxWidth, alignment: .leading)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(
                 Capsule(style: .continuous)
                     .fill(background)
             )
+            .fixedSize(horizontal: maxWidth == nil, vertical: false)
+    }
+
+    private func badgeColors(for tag: AccountTag) -> (foreground: Color, background: Color) {
+        switch tag.kind {
+        case .custom:
+            return (Color.codexCustomTagInk, Color.codexCustomTagFill)
+        case .availability:
+            return (.white, Color.codexDanger)
+        }
     }
 
     private func meterFillColor(for meter: UsageMeter) -> Color {
@@ -1279,6 +1384,114 @@ private struct AccountListRow: View {
         }
 
         return Color.codexAccent
+    }
+}
+
+private struct RowBadge: Identifiable {
+    let id: String
+    let title: String
+    let foreground: Color
+    let background: Color
+    let maxWidth: CGFloat?
+    let tag: AccountTag?
+}
+
+private struct BadgeFlowLayout: Layout {
+    enum Alignment {
+        case leading
+        case trailing
+    }
+
+    let horizontalSpacing: CGFloat
+    let verticalSpacing: CGFloat
+    let alignment: Alignment
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        layoutFrames(
+            in: proposal.width ?? .greatestFiniteMagnitude,
+            subviews: subviews
+        ).size
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        let layout = layoutFrames(in: bounds.width, subviews: subviews)
+
+        for (index, frame) in layout.frames.enumerated() {
+            subviews[index].place(
+                at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                proposal: ProposedViewSize(frame.size)
+            )
+        }
+    }
+
+    private func layoutFrames(in width: CGFloat, subviews: Subviews) -> (frames: [CGRect], size: CGSize) {
+        let maxWidth = width.isFinite ? max(width, 1) : .greatestFiniteMagnitude
+        var rows: [[CGSize]] = [[]]
+        var rowWidths: [CGFloat] = [0]
+        var rowHeights: [CGFloat] = [0]
+
+        for subview in subviews {
+            let subviewSize = subview.sizeThatFits(.unspecified)
+            let rowIndex = rows.count - 1
+            let currentRowWidth = rowWidths[rowIndex]
+            let candidateWidth = rows[rowIndex].isEmpty
+                ? subviewSize.width
+                : currentRowWidth + horizontalSpacing + subviewSize.width
+            let needsWrap = !rows[rowIndex].isEmpty && candidateWidth > maxWidth
+
+            if needsWrap {
+                rows.append([subviewSize])
+                rowWidths.append(subviewSize.width)
+                rowHeights.append(subviewSize.height)
+                continue
+            }
+
+            rows[rowIndex].append(subviewSize)
+            rowWidths[rowIndex] = candidateWidth
+            rowHeights[rowIndex] = max(rowHeights[rowIndex], subviewSize.height)
+        }
+
+        var frames: [CGRect] = []
+        var currentY: CGFloat = 0
+        var contentWidth: CGFloat = 0
+
+        for rowIndex in rows.indices {
+            let rowSizes = rows[rowIndex]
+            guard !rowSizes.isEmpty else {
+                continue
+            }
+
+            let rowWidth = rowWidths[rowIndex]
+            let rowStartX: CGFloat
+            switch alignment {
+            case .leading:
+                rowStartX = 0
+            case .trailing:
+                rowStartX = max(0, maxWidth - rowWidth)
+            }
+
+            var currentX = rowStartX
+            for subviewSize in rowSizes {
+                let frame = CGRect(origin: CGPoint(x: currentX, y: currentY), size: subviewSize)
+                frames.append(frame)
+                contentWidth = max(contentWidth, frame.maxX)
+                currentX += subviewSize.width + horizontalSpacing
+            }
+
+            currentY += rowHeights[rowIndex] + verticalSpacing
+        }
+
+        let contentHeight = rows.isEmpty ? 0 : max(0, currentY - verticalSpacing)
+        return (frames, CGSize(width: contentWidth, height: contentHeight))
     }
 }
 
@@ -1462,6 +1675,14 @@ private extension Color {
     static let codexSecondary = dynamicColor(
         light: srgb(0.45, 0.42, 0.38),
         dark: srgb(0.67, 0.64, 0.59)
+    )
+    static let codexCustomTagInk = dynamicColor(
+        light: srgb(0.37, 0.43, 0.52),
+        dark: srgb(0.67, 0.73, 0.81)
+    )
+    static let codexCustomTagFill = dynamicColor(
+        light: srgb(0.88, 0.91, 0.95),
+        dark: srgb(0.25, 0.28, 0.32)
     )
     static let codexTrack = dynamicColor(
         light: srgb(0.88, 0.85, 0.79),

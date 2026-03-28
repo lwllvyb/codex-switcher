@@ -376,6 +376,8 @@ final class MenuBarViewModel: ObservableObject {
             state.accounts[index].selectedWorkspaceID = workspaceID
             state.activeAccountID = accountID
         }
+
+        syncAvailabilityTagFromRuntimeState(for: accountID)
     }
 
     func deleteAccount(_ accountID: String) {
@@ -419,6 +421,257 @@ final class MenuBarViewModel: ObservableObject {
         }
 
         log("Removed account \(account.maskedEmail) from app storage.")
+    }
+
+    func visibleTags(for account: StoredAccount) -> [AccountTag] {
+        account.visibleTags
+    }
+
+    func canAddCustomTag(to account: StoredAccount) -> Bool {
+        account.customTags.count < AccountTag.maxCustomCount
+    }
+
+    func promptAddTag(to accountID: String) {
+        guard let account = state.accounts.first(where: { $0.id == accountID }) else {
+            return
+        }
+
+        guard canAddCustomTag(to: account) else {
+            transientError = customTagLimitReachedMessage()
+            return
+        }
+
+        transientError = nil
+
+        guard let rawTitle = promptForTagInput(
+            promptTitle: addTagPromptTitle(for: account),
+            promptMessage: tagPromptMessage(),
+            placeholder: addTagPlaceholder(),
+            initialValue: "",
+            confirmTitle: addTagConfirmTitle(),
+            validationMessage: { [self] rawTitle in
+                customTagValidationMessage(rawTitle, in: account)
+            }
+        ) else {
+            return
+        }
+
+        addCustomTag(rawTitle, to: accountID)
+    }
+
+    func promptEditTag(_ tag: AccountTag, from accountID: String) {
+        guard tag.isCustom,
+              let account = state.accounts.first(where: { $0.id == accountID }),
+              account.tags.contains(where: { $0.id == tag.id }) else {
+            return
+        }
+
+        transientError = nil
+
+        guard let rawTitle = promptForTagInput(
+            promptTitle: editTagPromptTitle(for: account),
+            promptMessage: editTagPromptMessage(),
+            placeholder: addTagPlaceholder(),
+            initialValue: tag.title,
+            confirmTitle: saveTagConfirmTitle(),
+            validationMessage: { [self] rawTitle in
+                customTagValidationMessage(rawTitle, in: account, excludingTagID: tag.id)
+            }
+        ) else {
+            return
+        }
+
+        updateCustomTag(tag, with: rawTitle, in: accountID)
+    }
+
+    func removeTag(_ tag: AccountTag, from accountID: String) {
+        guard tag.isCustom else {
+            return
+        }
+
+        updateState { state in
+            guard let accountIndex = state.accounts.firstIndex(where: { $0.id == accountID }) else {
+                return
+            }
+
+            state.accounts[accountIndex].tags.removeAll { $0.id == tag.id }
+            state.accounts[accountIndex].tags = StoredAccount.normalizedTags(state.accounts[accountIndex].tags)
+        }
+
+        log("Removed tag \(tag.title) from account \(accountID).")
+    }
+
+    private func addCustomTag(_ rawTitle: String, to accountID: String) {
+        guard let account = state.accounts.first(where: { $0.id == accountID }) else {
+            return
+        }
+
+        guard canAddCustomTag(to: account) else {
+            transientError = customTagLimitReachedMessage()
+            return
+        }
+
+        guard let tag = validatedCustomTag(rawTitle, in: account) else {
+            return
+        }
+
+        transientError = nil
+
+        updateState { state in
+            guard let accountIndex = state.accounts.firstIndex(where: { $0.id == accountID }) else {
+                return
+            }
+
+            state.accounts[accountIndex].tags = StoredAccount.normalizedTags(
+                state.accounts[accountIndex].tags + [tag]
+            )
+        }
+
+        log("Added tag \(tag.title) to account \(accountID).")
+    }
+
+    private func updateCustomTag(_ tag: AccountTag, with rawTitle: String, in accountID: String) {
+        guard tag.isCustom,
+              let account = state.accounts.first(where: { $0.id == accountID }),
+              let updatedTag = validatedCustomTag(rawTitle, in: account, excludingTagID: tag.id) else {
+            return
+        }
+
+        transientError = nil
+
+        updateState { state in
+            guard let accountIndex = state.accounts.firstIndex(where: { $0.id == accountID }),
+                  let tagIndex = state.accounts[accountIndex].tags.firstIndex(where: { $0.id == tag.id }) else {
+                return
+            }
+
+            state.accounts[accountIndex].tags[tagIndex] = updatedTag
+            state.accounts[accountIndex].tags = StoredAccount.normalizedTags(state.accounts[accountIndex].tags)
+        }
+
+        log("Updated tag \(tag.title) to \(updatedTag.title) on account \(accountID).")
+    }
+
+    private func validatedCustomTag(
+        _ rawTitle: String,
+        in account: StoredAccount,
+        excludingTagID: String? = nil
+    ) -> AccountTag? {
+        if let validationMessage = customTagValidationMessage(
+            rawTitle,
+            in: account,
+            excludingTagID: excludingTagID
+        ) {
+            transientError = validationMessage
+            return nil
+        }
+
+        let normalizedTitle = AccountTag.normalizedTitle(from: rawTitle)
+        guard let tag = AccountTag(title: normalizedTitle, kind: .custom) else {
+            return nil
+        }
+
+        return tag
+    }
+
+    private func promptForTagInput(
+        promptTitle: String,
+        promptMessage: String,
+        placeholder: String,
+        initialValue: String,
+        confirmTitle: String,
+        validationMessage: @escaping (String) -> String?
+    ) -> String? {
+        let contentWidth: CGFloat = 320
+        let accessoryHeight: CGFloat = 50
+        let inputField = NSTextField(frame: NSRect(x: 0, y: 24, width: contentWidth, height: 24))
+        inputField.placeholderString = placeholder
+        inputField.stringValue = initialValue
+        inputField.lineBreakMode = .byTruncatingTail
+
+        let validationLabel = NSTextField(labelWithString: "")
+        validationLabel.frame = NSRect(x: 0, y: 0, width: contentWidth, height: 18)
+        validationLabel.font = .systemFont(ofSize: 11)
+        validationLabel.textColor = .systemRed
+        validationLabel.lineBreakMode = .byWordWrapping
+        validationLabel.maximumNumberOfLines = 0
+        validationLabel.isHidden = true
+
+        let accessoryView = NSView(frame: NSRect(x: 0, y: 0, width: contentWidth, height: accessoryHeight))
+        accessoryView.addSubview(inputField)
+        accessoryView.addSubview(validationLabel)
+
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = promptTitle
+        alert.informativeText = promptMessage
+        alert.accessoryView = accessoryView
+        alert.addButton(withTitle: confirmTitle)
+        alert.addButton(withTitle: cancelButtonTitle())
+
+        guard let confirmButton = alert.buttons.first else {
+            return nil
+        }
+
+        let updateValidationState: (Bool) -> Void = { showMessage in
+            if let message = validationMessage(inputField.stringValue) {
+                validationLabel.stringValue = showMessage ? message : ""
+                validationLabel.isHidden = !showMessage
+                confirmButton.isEnabled = false
+            } else {
+                validationLabel.stringValue = ""
+                validationLabel.isHidden = true
+                confirmButton.isEnabled = true
+            }
+        }
+
+        let validationObserver = NotificationCenter.default.addObserver(
+            forName: NSControl.textDidChangeNotification,
+            object: inputField,
+            queue: .main
+        ) { _ in
+            updateValidationState(true)
+        }
+        defer {
+            NotificationCenter.default.removeObserver(validationObserver)
+        }
+
+        updateValidationState(false)
+
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return nil
+        }
+
+        return inputField.stringValue
+    }
+
+    private func customTagValidationMessage(
+        _ rawTitle: String,
+        in account: StoredAccount,
+        excludingTagID: String? = nil
+    ) -> String? {
+        let normalizedTitle = AccountTag.normalizedTitle(from: rawTitle)
+        guard !normalizedTitle.isEmpty else {
+            return emptyTagMessage()
+        }
+
+        guard !AccountTag.exceedsTitleLengthLimit(normalizedTitle) else {
+            return customTagTitleTooLongMessage()
+        }
+
+        guard let tag = AccountTag(title: normalizedTitle, kind: .custom) else {
+            return emptyTagMessage()
+        }
+
+        let hasDuplicate = account.tags.contains { existingTag in
+            existingTag.id == tag.id && existingTag.id != excludingTagID
+        }
+        guard !hasDuplicate else {
+            return duplicateTagMessage(for: tag.title)
+        }
+
+        return nil
     }
 
     func moveAccount(_ accountID: String, toIndex requestedIndex: Int) {
@@ -673,11 +926,19 @@ final class MenuBarViewModel: ObservableObject {
                     }
                     updatedAccounts[accountIndex].lastKnownRefreshAt = probeResult.snapshot.capturedAt
                     runtimeState.snapshotsByWorkspaceID[outcome.workspaceID] = probeResult.snapshot
+                    runtimeState.errorsByWorkspaceID.removeValue(forKey: outcome.workspaceID)
                     runtimeState.lastUpdatedAt = probeResult.snapshot.capturedAt
                 case .failure(let message):
-                    runtimeState.lastError = message
+                    runtimeState.errorsByWorkspaceID[outcome.workspaceID] = message
                 }
             }
+
+            let selectedWorkspaceFailure = selectedWorkspaceFailureMessage(
+                for: updatedAccounts[accountIndex],
+                runtimeState: runtimeState
+            )
+            runtimeState.lastError = selectedWorkspaceFailure
+            syncAvailabilityTag(for: &updatedAccounts[accountIndex], failureMessage: selectedWorkspaceFailure)
 
             runtimeStates[accountID] = runtimeState
         }
@@ -995,6 +1256,181 @@ final class MenuBarViewModel: ObservableObject {
         }
 
         return "The browser signed back into \(account.maskedEmail), which is already in the list, so no new account was added. To add a different account, switch the browser to that account first and sign in again."
+    }
+
+    private func syncAvailabilityTag(
+        for account: inout StoredAccount,
+        failureMessage: String?
+    ) {
+        account.tags.removeAll { $0.kind == .availability }
+
+        guard let failureMessage else {
+            account.tags = StoredAccount.normalizedTags(account.tags)
+            return
+        }
+
+        guard let availabilityTag = AccountTag(
+            title: availabilityTagTitle(for: failureMessage),
+            kind: .availability
+        ) else {
+            account.tags = StoredAccount.normalizedTags(account.tags)
+            return
+        }
+
+        account.tags = StoredAccount.normalizedTags(account.tags + [availabilityTag])
+    }
+
+    private func syncAvailabilityTagFromRuntimeState(for accountID: String) {
+        guard let account = state.accounts.first(where: { $0.id == accountID }) else {
+            return
+        }
+
+        let runtimeState = runtimeStates[accountID] ?? AccountRuntimeState()
+        let failureMessage = selectedWorkspaceFailureMessage(for: account, runtimeState: runtimeState)
+
+        updateState { state in
+            guard let accountIndex = state.accounts.firstIndex(where: { $0.id == accountID }) else {
+                return
+            }
+
+            syncAvailabilityTag(for: &state.accounts[accountIndex], failureMessage: failureMessage)
+        }
+
+        if runtimeStates[accountID] != nil {
+            runtimeStates[accountID]?.lastError = failureMessage
+        }
+    }
+
+    private func selectedWorkspaceFailureMessage(
+        for account: StoredAccount,
+        runtimeState: AccountRuntimeState
+    ) -> String? {
+        let workspaceID = selectedWorkspaceID(for: account)
+
+        if let failureMessage = runtimeState.errorsByWorkspaceID[workspaceID] {
+            return failureMessage
+        }
+
+        if runtimeState.snapshotsByWorkspaceID[workspaceID] != nil {
+            return nil
+        }
+
+        return nil
+    }
+
+    private func selectedWorkspaceID(for account: StoredAccount) -> String {
+        if !account.selectedWorkspaceID.isEmpty {
+            return account.selectedWorkspaceID
+        }
+
+        if let firstWorkspaceID = account.workspaces.first?.id, !firstWorkspaceID.isEmpty {
+            return firstWorkspaceID
+        }
+
+        return account.id
+    }
+
+    private func availabilityTagTitle(for message: String) -> String {
+        let normalizedMessage = message.lowercased()
+
+        if normalizedMessage.contains("401")
+            || normalizedMessage.contains("403")
+            || normalizedMessage.contains("unauthorized")
+            || normalizedMessage.contains("forbidden")
+            || normalizedMessage.contains("login")
+            || normalizedMessage.contains("auth") {
+            return effectiveLanguage.isChinese ? "登录失效" : "Login Expired"
+        }
+
+        if normalizedMessage.contains("timed out")
+            || normalizedMessage.contains("timeout") {
+            return effectiveLanguage.isChinese ? "请求超时" : "Timed Out"
+        }
+
+        if normalizedMessage.contains("could not resolve the codex executable")
+            || normalizedMessage.contains("codex executable")
+            || normalizedMessage.contains("no such file")
+            || normalizedMessage.contains("command not found") {
+            return effectiveLanguage.isChinese ? "Codex 不可用" : "Codex Missing"
+        }
+
+        if normalizedMessage.contains("connection")
+            || normalizedMessage.contains("closed")
+            || normalizedMessage.contains("network")
+            || normalizedMessage.contains("econn") {
+            return effectiveLanguage.isChinese ? "连接失败" : "Connection Failed"
+        }
+
+        return effectiveLanguage.isChinese ? "不可用" : "Unavailable"
+    }
+
+    private func addTagPromptTitle(for account: StoredAccount) -> String {
+        if effectiveLanguage.isChinese {
+            return "给 \(displayedEmail(for: account)) 添加标签"
+        }
+        return "Add a tag to \(displayedEmail(for: account))"
+    }
+
+    private func tagPromptMessage() -> String {
+        if effectiveLanguage.isChinese {
+            return "最多可以添加 \(AccountTag.maxCustomCount) 个自定义标签，每个标签最多 \(AccountTag.maxTitleLength) 个字符。"
+        }
+        return "You can add up to \(AccountTag.maxCustomCount) custom tags, and each tag can have up to \(AccountTag.maxTitleLength) characters."
+    }
+
+    private func editTagPromptTitle(for account: StoredAccount) -> String {
+        if effectiveLanguage.isChinese {
+            return "编辑 \(displayedEmail(for: account)) 的标签"
+        }
+        return "Edit a tag for \(displayedEmail(for: account))"
+    }
+
+    private func editTagPromptMessage() -> String {
+        if effectiveLanguage.isChinese {
+            return "每个标签最多 \(AccountTag.maxTitleLength) 个字符。"
+        }
+        return "Each tag can have up to \(AccountTag.maxTitleLength) characters."
+    }
+
+    private func addTagPlaceholder() -> String {
+        effectiveLanguage.isChinese ? "输入标签名" : "Enter a tag"
+    }
+
+    private func addTagConfirmTitle() -> String {
+        effectiveLanguage.isChinese ? "添加" : "Add"
+    }
+
+    private func saveTagConfirmTitle() -> String {
+        effectiveLanguage.isChinese ? "保存" : "Save"
+    }
+
+    private func cancelButtonTitle() -> String {
+        effectiveLanguage.isChinese ? "取消" : "Cancel"
+    }
+
+    private func customTagLimitReachedMessage() -> String {
+        if effectiveLanguage.isChinese {
+            return "每个账号最多只能添加 \(AccountTag.maxCustomCount) 个自定义标签。"
+        }
+        return "Each account can have up to \(AccountTag.maxCustomCount) custom tags."
+    }
+
+    private func customTagTitleTooLongMessage() -> String {
+        if effectiveLanguage.isChinese {
+            return "每个标签最多只能输入 \(AccountTag.maxTitleLength) 个字符。"
+        }
+        return "Each tag can have up to \(AccountTag.maxTitleLength) characters."
+    }
+
+    private func emptyTagMessage() -> String {
+        effectiveLanguage.isChinese ? "标签名不能为空。" : "Tag name can't be empty."
+    }
+
+    private func duplicateTagMessage(for title: String) -> String {
+        if effectiveLanguage.isChinese {
+            return "标签“\(title)”已经存在了。"
+        }
+        return "The tag “\(title)” already exists."
     }
 
     private func relativeUpdateText(since date: Date) -> String {
