@@ -6,7 +6,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_PATH="$ROOT_DIR/multi-codex-limit-viewer.xcodeproj"
 SCHEME="${SCHEME:-multi-codex-limit-viewer}"
 CONFIGURATION="${CONFIGURATION:-Release}"
-TEAM_ID="${TEAM_ID:-24D7733HKN}"
+BUNDLE_ID="${BUNDLE_ID:-}"
+TEAM_ID="${TEAM_ID:-}"
 APP_NAME="${APP_NAME:-Codex Switcher}"
 DISPLAY_NAME="${DISPLAY_NAME:-Codex Switcher}"
 BUILD_ROOT="${BUILD_ROOT:-$ROOT_DIR/build/direct}"
@@ -19,12 +20,27 @@ EXPORT_OPTIONS_PLIST="$BUILD_ROOT/ExportOptions.plist"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 DMG_SIGN_IDENTITY="${DMG_SIGN_IDENTITY:-}"
 ALLOW_PROVISIONING_UPDATES="${ALLOW_PROVISIONING_UPDATES:-1}"
+ALLOW_UNNOTARIZED="${ALLOW_UNNOTARIZED:-0}"
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "Missing required command: $1" >&2
     exit 1
   fi
+}
+
+require_env() {
+  local name="$1"
+  local value="$2"
+  local example="$3"
+
+  if [[ -n "$value" ]]; then
+    return
+  fi
+
+  echo "Missing required environment variable: $name" >&2
+  echo "Example: $example" >&2
+  exit 1
 }
 
 resolve_dmg_sign_identity() {
@@ -49,6 +65,15 @@ require_command hdiutil
 require_command codesign
 require_command security
 require_command spctl
+
+require_env \
+  BUNDLE_ID \
+  "$BUNDLE_ID" \
+  'BUNDLE_ID="com.example.codex.switcher" TEAM_ID="ABCDE12345" NOTARY_PROFILE="notary-profile" ./scripts/package_direct_dmg.sh'
+require_env \
+  TEAM_ID \
+  "$TEAM_ID" \
+  'BUNDLE_ID="com.example.codex.switcher" TEAM_ID="ABCDE12345" NOTARY_PROFILE="notary-profile" ./scripts/package_direct_dmg.sh'
 
 XCODE_PROVISIONING_FLAGS=()
 if [[ "$ALLOW_PROVISIONING_UPDATES" == "1" ]]; then
@@ -82,6 +107,8 @@ xcodebuild archive \
   -configuration "$CONFIGURATION" \
   -derivedDataPath "$DERIVED_DATA_PATH" \
   -archivePath "$ARCHIVE_PATH" \
+  DEVELOPMENT_TEAM="$TEAM_ID" \
+  PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
   "${XCODE_PROVISIONING_FLAGS[@]}"
 
 echo "==> Exporting Developer ID app"
@@ -89,6 +116,8 @@ xcodebuild -exportArchive \
   -archivePath "$ARCHIVE_PATH" \
   -exportPath "$EXPORT_PATH" \
   -exportOptionsPlist "$EXPORT_OPTIONS_PLIST" \
+  DEVELOPMENT_TEAM="$TEAM_ID" \
+  PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
   "${XCODE_PROVISIONING_FLAGS[@]}"
 
 APP_PATH="$EXPORT_PATH/$APP_NAME.app"
@@ -132,19 +161,35 @@ if [[ -n "$NOTARY_PROFILE" ]]; then
 
   echo "==> Stapling notarization ticket to DMG"
   xcrun stapler staple "$DMG_PATH"
+
+  echo "==> Validating stapled DMG"
+  xcrun stapler validate "$DMG_PATH"
 else
+  if [[ "$ALLOW_UNNOTARIZED" != "1" ]]; then
+    cat <<EOF >&2
+==> Notarization is required for release DMGs, but NOTARY_PROFILE is empty.
+This DMG will be blocked by Gatekeeper and may show as "已损坏" on user machines.
+Create a profile first:
+  xcrun notarytool store-credentials "notary-profile" --apple-id "<APPLE_ID>" --team-id "$TEAM_ID" --password "<APP_SPECIFIC_PASSWORD>"
+Then rerun:
+  BUNDLE_ID="$BUNDLE_ID" TEAM_ID="$TEAM_ID" NOTARY_PROFILE=notary-profile ./scripts/package_direct_dmg.sh
+If you only want a local test build, run:
+  BUNDLE_ID="$BUNDLE_ID" TEAM_ID="$TEAM_ID" ALLOW_UNNOTARIZED=1 ./scripts/package_direct_dmg.sh
+EOF
+    exit 1
+  fi
+
   cat <<EOF
 ==> Skipped notarization because NOTARY_PROFILE is empty.
-To avoid Gatekeeper's unsafe warning on user machines, notarization is required.
-Create a profile first:
-  xcrun notarytool store-credentials "codex-notary" --apple-id "<APPLE_ID>" --team-id "$TEAM_ID" --password "<APP_SPECIFIC_PASSWORD>"
-Then rerun:
-  NOTARY_PROFILE=codex-notary ./scripts/package_direct_dmg.sh
+This local-only DMG will be blocked by Gatekeeper and may show as "已损坏".
+Do not send it to users.
 EOF
 fi
 
 echo "==> Verifying DMG"
-if spctl -a -vv -t open "$DMG_PATH"; then
+# Disk image assessment needs an explicit context on the build machine,
+# otherwise spctl can reject a valid notarized DMG with "Insufficient Context".
+if spctl -a -vv -t open --context context:primary-signature "$DMG_PATH"; then
   :
 elif [[ -n "$NOTARY_PROFILE" ]]; then
   echo "Gatekeeper verification failed for notarized DMG." >&2

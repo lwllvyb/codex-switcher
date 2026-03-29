@@ -61,13 +61,13 @@ rg -n "ENABLE_APP_SANDBOX|ENABLE_HARDENED_RUNTIME" multi-codex-limit-viewer.xcod
 然后把凭据存进本机 keychain：
 
 ```bash
-xcrun notarytool store-credentials "codex-notary" \
+xcrun notarytool store-credentials "notary-profile" \
   --apple-id "<你的 Apple ID>" \
-  --team-id "xxx" \
+  --team-id "<你的 Team ID>" \
   --password "<你的 app-specific password>"
 ```
 
-成功后，这台机器以后可以直接复用 `codex-notary` 这个 profile。
+成功后，这台机器以后可以直接复用 `notary-profile` 这个 profile。
 
 ## 4. 一键打包签名后的 DMG
 
@@ -79,21 +79,30 @@ xcrun notarytool store-credentials "codex-notary" \
 
 ```bash
 cd /Users/liuzhuangm4/develop/codexlimitviewer/multi-codex-limit-viewer
-NOTARY_PROFILE=codex-notary ./scripts/package_direct_dmg.sh
+BUNDLE_ID="com.example.codex.switcher" \
+TEAM_ID="<你的 Team ID>" \
+NOTARY_PROFILE=notary-profile \
+./scripts/package_direct_dmg.sh
 ```
+
+这个脚本现在不会再把真实 `TEAM_ID` 和 bundle id 固定写在仓库里。
+你本地打包时，需要用环境变量把这两个值传进去。
 
 如果这次构建启用了 iCloud Documents，`Developer ID` 导出会额外需要匹配的 provisioning profile。
 脚本现在会默认带上 `-allowProvisioningUpdates`，让 Xcode 自动去拉取或更新这个 profile。
 前提是：
 
 - 当前 Mac 上的 Xcode 已经登录你的开发者账号
-- `com.zzz.codex.switcher` 这个 App ID 已经在 Apple Developer 后台开了 iCloud
+- 你这次要打包的 `BUNDLE_ID` 已经在 Apple Developer 后台开了对应能力
 - 这台机器有权限访问对应 team
 
 如果你就是想完全离线打包，可以手动关掉：
 
 ```bash
-ALLOW_PROVISIONING_UPDATES=0 ./scripts/package_direct_dmg.sh
+BUNDLE_ID="com.example.codex.switcher" \
+TEAM_ID="<你的 Team ID>" \
+ALLOW_PROVISIONING_UPDATES=0 \
+./scripts/package_direct_dmg.sh
 ```
 
 但这样一来，只要本机没有现成的 Developer ID provisioning profile，`exportArchive` 还是会失败。
@@ -109,6 +118,19 @@ ALLOW_PROVISIONING_UPDATES=0 ./scripts/package_direct_dmg.sh
 7. 对 DMG 做 `staple`
 8. 本地执行 Gatekeeper 验证
 
+现在脚本默认把“未公证”视为失败。
+如果你忘了传 `NOTARY_PROFILE`，脚本会直接退出，不再给出一个看起来像能发布的 DMG。
+只有你明确加上下面这个开关时，才会允许产出一个仅供本机测试的未公证 DMG：
+
+```bash
+BUNDLE_ID="com.example.codex.switcher" \
+TEAM_ID="<你的 Team ID>" \
+ALLOW_UNNOTARIZED=1 \
+./scripts/package_direct_dmg.sh
+```
+
+这种 DMG 发给别人后，大概率会被 Gatekeeper 拦住，并可能显示“已损坏”。
+
 默认输出位置：
 
 - App：`build/direct/export/multi-codex-limit-viewer.app`
@@ -121,8 +143,10 @@ ALLOW_PROVISIONING_UPDATES=0 ./scripts/package_direct_dmg.sh
 如果你的环境里有多张证书，建议显式指定：
 
 ```bash
-DMG_SIGN_IDENTITY="Developer ID Application: Your Name (24D7733HKN)" \
-NOTARY_PROFILE=codex-notary \
+DMG_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID1234)" \
+BUNDLE_ID="com.example.codex.switcher" \
+TEAM_ID="TEAMID1234" \
+NOTARY_PROFILE=notary-profile \
 ./scripts/package_direct_dmg.sh
 ```
 
@@ -131,6 +155,9 @@ NOTARY_PROFILE=codex-notary \
 可以先不 notarize：
 
 ```bash
+BUNDLE_ID="com.example.codex.switcher" \
+TEAM_ID="<你的 Team ID>" \
+ALLOW_UNNOTARIZED=1 \
 ./scripts/package_direct_dmg.sh
 ```
 
@@ -146,8 +173,10 @@ NOTARY_PROFILE=codex-notary \
 
 ```bash
 spctl -a -vv -t exec build/direct/export/multi-codex-limit-viewer.app
-spctl -a -vv -t open build/direct/Codex-Switcher.dmg
+spctl -a -vv -t open --context context:primary-signature build/direct/Codex-Switcher.dmg
 ```
+
+这里检查 DMG 时要带上 `--context context:primary-signature`，否则本机直接评估时，`spctl` 可能把一个有效的已签名 DMG 误报成 `source=Insufficient Context`。
 
 你还应该再做一次人工验证：
 
@@ -195,7 +224,7 @@ security find-identity -v -p codesigning | rg "Developer ID Application"
 先看日志：
 
 ```bash
-xcrun notarytool log <submission-id> --keychain-profile codex-notary notary-log.json
+xcrun notarytool log <submission-id> --keychain-profile notary-profile notary-log.json
 ```
 
 最常见的是：

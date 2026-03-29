@@ -3,7 +3,7 @@
 set -euo pipefail
 
 APP_NAME="Codex Switcher"
-BUNDLE_ID="com.zzz.codex.switcher"
+BUNDLE_ID="${BUNDLE_ID:-com.example.codex.switcher}"
 STORAGE_NAME="MultiCodexLimitViewer"
 
 DRY_RUN=0
