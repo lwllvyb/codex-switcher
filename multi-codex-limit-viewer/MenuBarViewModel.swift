@@ -52,6 +52,7 @@ final class MenuBarViewModel: ObservableObject {
         state = (try? self.store.loadState()) ?? .empty
         runtimeStates = [:]
         cloudSyncStatus = self.store.cloudSyncStatus()
+        syncCurrentCodexSelectionIntoState()
         applyAppearance()
         syncLaunchAtLoginStatus()
         self.logger.append(
@@ -279,6 +280,14 @@ final class MenuBarViewModel: ObservableObject {
                 transientError = error.localizedDescription
                 log("Bootstrap import failed: \(error.localizedDescription)")
             }
+        } else if let currentAccountID = try? store.currentAccountID(),
+                  state.accounts.contains(where: { $0.id == currentAccountID }) {
+            do {
+                _ = try importCurrentAccountSync(setActive: false)
+                syncCurrentCodexSelectionIntoState()
+            } catch {
+                log("Bootstrap metadata sync skipped: \(error.localizedDescription)")
+            }
         }
 
         await refreshAll()
@@ -502,16 +511,33 @@ final class MenuBarViewModel: ObservableObject {
     }
 
     func selectWorkspace(_ workspaceID: String, for accountID: String) {
-        guard state.accounts.contains(where: { $0.id == accountID }) else {
+        guard let accountIndex = state.accounts.firstIndex(where: { $0.id == accountID }) else {
             return
         }
 
-        updateState { state in
-            guard let index = state.accounts.firstIndex(where: { $0.id == accountID }) else {
-                return
+        transientError = nil
+
+        var updatedAccount = state.accounts[accountIndex]
+        guard updatedAccount.workspaces.contains(where: { $0.id == workspaceID }) else {
+            return
+        }
+        updatedAccount.selectedWorkspaceID = workspaceID
+
+        do {
+            try store.activateAccount(updatedAccount)
+            updateState { state in
+                guard let index = state.accounts.firstIndex(where: { $0.id == accountID }) else {
+                    return
+                }
+                state.accounts[index] = updatedAccount
+                state.activeAccountID = accountID
             }
-            state.accounts[index].selectedWorkspaceID = workspaceID
-            state.activeAccountID = accountID
+            let workspaceLabel = updatedAccount.selectedWorkspace?.menuLabel ?? workspaceID
+            log("Switched Codex to account \(updatedAccount.maskedEmail) workspace \(workspaceLabel).")
+        } catch {
+            transientError = error.localizedDescription
+            log("Switch workspace failed: \(error.localizedDescription)")
+            return
         }
 
         syncAvailabilityTagFromRuntimeState(for: accountID)
@@ -1742,8 +1768,28 @@ final class MenuBarViewModel: ObservableObject {
     private func rebuildStoreState() {
         store = AuthSnapshotStore()
         state = (try? store.loadState()) ?? .empty
+        syncCurrentCodexSelectionIntoState()
         cloudSyncStatus = store.cloudSyncStatus()
         refreshDiagnosticsReport()
+    }
+
+    private func syncCurrentCodexSelectionIntoState() {
+        guard let currentAccountID = try? store.currentAccountID() else {
+            return
+        }
+
+        guard let accountIndex = state.accounts.firstIndex(where: { $0.id == currentAccountID }) else {
+            return
+        }
+
+        state.activeAccountID = currentAccountID
+
+        guard let currentWorkspaceOverrideID = store.currentWorkspaceOverrideID,
+              state.accounts[accountIndex].workspaces.contains(where: { $0.id == currentWorkspaceOverrideID }) else {
+            return
+        }
+
+        state.accounts[accountIndex].selectedWorkspaceID = currentWorkspaceOverrideID
     }
 
     private func formattedTimestamp(_ date: Date) -> String {

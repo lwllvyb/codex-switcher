@@ -30,6 +30,8 @@ struct CloudSyncStatus: Sendable {
 }
 
 final class AuthSnapshotStore {
+    private static let forcedWorkspaceConfigKey = "forced_chatgpt_workspace_id"
+
     private let fileManager = FileManager.default
 
     let rootURL: URL
@@ -77,11 +79,16 @@ final class AuthSnapshotStore {
     }
 
     func importCurrentAccount(existingAccounts: [StoredAccount]) throws -> StoredAccount {
-        try importAccount(
+        var account = try importAccount(
             from: currentAuthURL(),
             existingAccounts: existingAccounts,
             missingFilePathDescription: "~/.codex/auth.json"
         )
+        if let currentWorkspaceOverrideID,
+           account.workspaces.contains(where: { $0.id == currentWorkspaceOverrideID }) {
+            account.selectedWorkspaceID = currentWorkspaceOverrideID
+        }
+        return account
     }
 
     func importAccount(
@@ -198,6 +205,7 @@ final class AuthSnapshotStore {
             attributes: nil
         )
         try copyAuthFile(data: data, to: currentAuthURL())
+        try setCurrentWorkspaceOverrideID(selectedWorkspaceID(for: account))
     }
 
     func currentAccountID() throws -> String? {
@@ -213,6 +221,43 @@ final class AuthSnapshotStore {
 
         let claims = try decodeClaims(from: authFile.tokens.idToken)
         return claims.openAIAuth.chatgptAccountID
+    }
+
+    var currentWorkspaceOverrideID: String? {
+        guard
+            let configContents = try? String(contentsOf: currentConfigURL(), encoding: .utf8)
+        else {
+            return nil
+        }
+
+        return Self.workspaceOverrideID(in: configContents)
+    }
+
+    func setCurrentWorkspaceOverrideID(_ workspaceID: String?) throws {
+        let configURL = currentConfigURL()
+        let existingContents = (try? String(contentsOf: configURL, encoding: .utf8)) ?? ""
+        let updatedContents = Self.configContents(
+            bySettingWorkspaceOverrideID: workspaceID,
+            in: existingContents
+        )
+
+        guard updatedContents != existingContents || !fileManager.fileExists(atPath: configURL.path) else {
+            return
+        }
+
+        if updatedContents.isEmpty {
+            if fileManager.fileExists(atPath: configURL.path) {
+                try fileManager.removeItem(at: configURL)
+            }
+            return
+        }
+
+        try fileManager.createDirectory(
+            at: currentCodexHomeURL(),
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        try writeFile(data: Data(updatedContents.utf8), to: configURL)
     }
 
     func cloudSyncStatus() -> CloudSyncStatus {
@@ -346,6 +391,16 @@ final class AuthSnapshotStore {
     private func currentCodexHomeURL() -> URL {
         URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent(".codex", isDirectory: true)
+    }
+
+    private func currentConfigURL() -> URL {
+        currentCodexHomeURL().appendingPathComponent("config.toml")
+    }
+
+    private func selectedWorkspaceID(for account: StoredAccount) -> String? {
+        let workspaceID = account.selectedWorkspace?.id ?? account.selectedWorkspaceID
+        let normalized = workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
     }
 
     private func prepareDirectoriesIfNeeded() {
@@ -699,6 +754,168 @@ final class AuthSnapshotStore {
         "accounts/\(accountHomeFolderName)/auth.json"
     }
 
+    private static func workspaceOverrideID(in configContents: String) -> String? {
+        var hasEnteredSection = false
+
+        for line in configContents.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
+            let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+            if trimmedLine.hasPrefix("[") && trimmedLine.hasSuffix("]") {
+                hasEnteredSection = true
+                continue
+            }
+
+            guard !hasEnteredSection else {
+                continue
+            }
+
+            guard let rawValue = rawConfigValue(
+                for: forcedWorkspaceConfigKey,
+                in: String(line)
+            ) else {
+                continue
+            }
+
+            return parsedTOMLString(from: rawValue)
+        }
+
+        return nil
+    }
+
+    private static func configContents(
+        bySettingWorkspaceOverrideID workspaceID: String?,
+        in configContents: String
+    ) -> String {
+        let normalizedWorkspaceID = workspaceID?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nonEmpty
+
+        let lines = configContents
+            .split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+            .map(String.init)
+        var updatedLines: [String] = []
+        var hasEnteredSection = false
+        var didWriteWorkspaceLine = false
+
+        for line in lines {
+            let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+            if trimmedLine.hasPrefix("[") && trimmedLine.hasSuffix("]") {
+                if !hasEnteredSection,
+                   let normalizedWorkspaceID,
+                   !didWriteWorkspaceLine {
+                    while updatedLines.last?.isEmpty == true {
+                        updatedLines.removeLast()
+                    }
+                    if !updatedLines.isEmpty {
+                        updatedLines.append("")
+                    }
+                    updatedLines.append(workspaceOverrideAssignment(for: normalizedWorkspaceID))
+                    updatedLines.append("")
+                    didWriteWorkspaceLine = true
+                }
+                hasEnteredSection = true
+                updatedLines.append(line)
+                continue
+            }
+
+            guard !hasEnteredSection,
+                  rawConfigValue(for: forcedWorkspaceConfigKey, in: line) != nil else {
+                updatedLines.append(line)
+                continue
+            }
+
+            if let normalizedWorkspaceID, !didWriteWorkspaceLine {
+                updatedLines.append(workspaceOverrideAssignment(for: normalizedWorkspaceID))
+                didWriteWorkspaceLine = true
+            }
+        }
+
+        if let normalizedWorkspaceID, !didWriteWorkspaceLine {
+            while updatedLines.last?.isEmpty == true {
+                updatedLines.removeLast()
+            }
+            if !updatedLines.isEmpty {
+                updatedLines.append("")
+            }
+            updatedLines.append(workspaceOverrideAssignment(for: normalizedWorkspaceID))
+        }
+
+        while updatedLines.last?.isEmpty == true {
+            updatedLines.removeLast()
+        }
+
+        guard !updatedLines.isEmpty else {
+            return ""
+        }
+
+        return updatedLines.joined(separator: "\n") + "\n"
+    }
+
+    private static func rawConfigValue(for key: String, in line: String) -> String? {
+        let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmedLine.isEmpty, !trimmedLine.hasPrefix("#") else {
+            return nil
+        }
+
+        guard trimmedLine.hasPrefix("\(key) =") || trimmedLine.hasPrefix("\(key)=") else {
+            return nil
+        }
+
+        guard let equalsIndex = trimmedLine.firstIndex(of: "=") else {
+            return nil
+        }
+
+        return String(trimmedLine[trimmedLine.index(after: equalsIndex)...])
+            .trimmingCharacters(in: .whitespaces)
+    }
+
+    private static func parsedTOMLString(from rawValue: String) -> String? {
+        let trimmedValue = rawValue.trimmingCharacters(in: .whitespaces)
+        guard !trimmedValue.isEmpty else {
+            return nil
+        }
+
+        if trimmedValue.hasPrefix("\"") {
+            var value = ""
+            var isEscaping = false
+
+            for character in trimmedValue.dropFirst() {
+                if isEscaping {
+                    value.append(character)
+                    isEscaping = false
+                    continue
+                }
+
+                if character == "\\" {
+                    isEscaping = true
+                    continue
+                }
+
+                if character == "\"" {
+                    return value.nonEmpty
+                }
+
+                value.append(character)
+            }
+        }
+
+        let bareValue = trimmedValue
+            .split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
+            .first?
+            .trimmingCharacters(in: .whitespaces)
+
+        return bareValue?.nonEmpty
+    }
+
+    private static func workspaceOverrideAssignment(for workspaceID: String) -> String {
+        "\(forcedWorkspaceConfigKey) = \"\(escapedTOMLString(workspaceID))\""
+    }
+
+    private static func escapedTOMLString(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+    }
+
     private static func localRootURL() -> URL {
         let baseURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
@@ -842,5 +1059,11 @@ private extension Data {
         }
 
         self.init(base64Encoded: normalized)
+    }
+}
+
+private extension String {
+    var nonEmpty: String? {
+        isEmpty ? nil : self
     }
 }

@@ -462,7 +462,50 @@ enum PlanBadge: String, Codable, CaseIterable, Hashable, Sendable {
     case unknown
 
     nonisolated init(rawPlan: String?) {
-        self = PlanBadge(rawValue: rawPlan?.lowercased() ?? "") ?? .unknown
+        let normalizedPlan = rawPlan?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: " ", with: "")
+
+        switch normalizedPlan {
+        case "free", "chatgptfree":
+            self = .free
+        case "go", "chatgptgo":
+            self = .go
+        case "plus", "chatgptplus", "personalplus":
+            self = .plus
+        case "pro", "chatgptpro":
+            self = .pro
+        case "team", "chatgptteam":
+            self = .team
+        case "business", "chatgptbusiness":
+            self = .business
+        case "enterprise", "chatgptenterprise":
+            self = .enterprise
+        case "edu", "education", "chatgptedu", "chatgpteducation":
+            self = .edu
+        case .some(let normalizedPlan) where normalizedPlan.contains("enterprise"):
+            self = .enterprise
+        case .some(let normalizedPlan) where normalizedPlan.contains("business"):
+            self = .business
+        case .some(let normalizedPlan) where normalizedPlan.contains("team"):
+            self = .team
+        case .some(let normalizedPlan) where normalizedPlan.contains("plus"):
+            self = .plus
+        case .some(let normalizedPlan) where normalizedPlan.contains("pro"):
+            self = .pro
+        case .some(let normalizedPlan) where normalizedPlan.contains("edu")
+            || normalizedPlan.contains("education"):
+            self = .edu
+        case .some(let normalizedPlan) where normalizedPlan.contains("go"):
+            self = .go
+        case .some(let normalizedPlan) where normalizedPlan.contains("free"):
+            self = .free
+        default:
+            self = .unknown
+        }
     }
 
     nonisolated var title: String {

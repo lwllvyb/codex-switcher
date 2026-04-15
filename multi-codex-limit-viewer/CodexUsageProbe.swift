@@ -527,12 +527,8 @@ struct CodexUsageProbe: Sendable {
             throw ProbeError.invalidResponse("Missing rate limit payload.")
         }
 
-        let meters = [
-            parseMeter(id: "primary", payload: rateLimitPayload["primary"] as? [String: Any]),
-            parseMeter(id: "secondary", payload: rateLimitPayload["secondary"] as? [String: Any])
-        ]
-        .compactMap { $0 }
-        .sorted { ($0.windowDurationMinutes ?? 0) < ($1.windowDurationMinutes ?? 0) }
+        let plan = PlanBadge(rawPlan: (rateLimitPayload["planType"] as? String) ?? rawPlan)
+        let meters = parseMeters(from: rateLimitPayload)
 
         guard !meters.isEmpty else {
             throw ProbeError.invalidResponse("Rate limit payload did not contain any windows.")
@@ -540,23 +536,73 @@ struct CodexUsageProbe: Sendable {
 
         return ProbeResult(
             email: email,
-            plan: PlanBadge(rawPlan: (rateLimitPayload["planType"] as? String) ?? rawPlan),
+            plan: plan,
             workspaces: parseWorkspaces(from: accountPayload),
             snapshot: UsageSnapshot(
                 capturedAt: Date(),
                 meters: meters,
-                plan: PlanBadge(rawPlan: (rateLimitPayload["planType"] as? String) ?? rawPlan)
+                plan: plan
             )
         )
     }
 
+    nonisolated private static func parseMeters(from rateLimitPayload: [String: Any]) -> [UsageMeter] {
+        var metersBySignature: [String: UsageMeter] = [:]
+
+        for (key, value) in rateLimitPayload {
+            guard let payload = value as? [String: Any],
+                  let meter = parseMeter(id: key, payload: payload) else {
+                continue
+            }
+            metersBySignature[meterSignature(for: meter)] = meter
+        }
+
+        if let windows = rateLimitPayload["windows"] as? [[String: Any]] {
+            for (index, payload) in windows.enumerated() {
+                guard let meter = parseMeter(id: "window-\(index)", payload: payload) else {
+                    continue
+                }
+                metersBySignature[meterSignature(for: meter)] = meter
+            }
+        }
+
+        return metersBySignature.values.sorted {
+            let leftDuration = $0.windowDurationMinutes ?? Int.max
+            let rightDuration = $1.windowDurationMinutes ?? Int.max
+            if leftDuration != rightDuration {
+                return leftDuration < rightDuration
+            }
+            return $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending
+        }
+    }
+
     nonisolated private static func parseMeter(id: String, payload: [String: Any]?) -> UsageMeter? {
-        guard let payload, let usedPercent = number(from: payload["usedPercent"]) else {
+        guard let payload else {
             return nil
         }
 
-        let durationMinutes = Int(number(from: payload["windowDurationMins"]) ?? 0)
-        let resetsAtSeconds = number(from: payload["resetsAt"])
+        let usedPercent = number(
+            from: payload["usedPercent"]
+                ?? payload["used_percent"]
+                ?? payload["usagePercent"]
+                ?? payload["usage_percent"]
+        )
+        guard let usedPercent else {
+            return nil
+        }
+
+        let durationMinutes = Int(number(
+            from: payload["windowDurationMins"]
+                ?? payload["windowDurationMinutes"]
+                ?? payload["window_duration_mins"]
+                ?? payload["window_duration_minutes"]
+        ) ?? 0)
+        let resetsAtSeconds = number(
+            from: payload["resetsAt"]
+                ?? payload["resetAt"]
+                ?? payload["resets_at"]
+                ?? payload["reset_at"]
+        )
         return UsageMeter(
             id: id,
             title: title(for: durationMinutes),
@@ -564,6 +610,12 @@ struct CodexUsageProbe: Sendable {
             windowDurationMinutes: durationMinutes == 0 ? nil : durationMinutes,
             resetsAt: resetsAtSeconds.map { Date(timeIntervalSince1970: $0) }
         )
+    }
+
+    nonisolated private static func meterSignature(for meter: UsageMeter) -> String {
+        let duration = meter.windowDurationMinutes.map(String.init) ?? "none"
+        let reset = meter.resetsAt.map { String(Int($0.timeIntervalSince1970)) } ?? "none"
+        return "\(duration)|\(reset)"
     }
 
     nonisolated private static func parseWorkspaces(from accountPayload: [String: Any]) -> [StoredWorkspace]? {
@@ -645,6 +697,8 @@ struct CodexUsageProbe: Sendable {
             return number
         case let number as Int:
             return Double(number)
+        case let number as String:
+            return Double(number.trimmingCharacters(in: .whitespacesAndNewlines))
         default:
             return nil
         }
