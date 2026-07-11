@@ -25,7 +25,7 @@ Codex Switcher 是一个 macOS 菜单栏小工具，用来同时查看多个 Cha
 ### 运行环境
 
 - macOS
-- 已安装 `codex` 可执行文件，或安装 Codex 桌面版
+- 已安装 `codex` 可执行文件，或安装 ChatGPT（原 Codex）桌面版
 - 至少有一个可用的 Codex 登录账号
 
 ### 安装方式
@@ -80,7 +80,7 @@ Codex Switcher is a macOS menu bar app for monitoring multiple ChatGPT Codex acc
 ### Requirements
 
 - macOS
-- A working `codex` executable or the Codex desktop app
+- A working `codex` executable or the ChatGPT desktop app (formerly Codex)
 - At least one valid Codex account
 
 ### Installation

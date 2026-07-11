@@ -44,6 +44,7 @@ struct CodexExecutableResolver: Sendable {
             "/opt/homebrew/bin/codex",
             "/usr/local/bin/codex",
             "/Users/\(NSUserName())/.local/bin/codex",
+            "/Applications/ChatGPT.app/Contents/Resources/codex",
             "/Applications/Codex.app/Contents/Resources/codex"
         ] + nvmCandidates()
 
